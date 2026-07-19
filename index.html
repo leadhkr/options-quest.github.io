@@ -808,11 +808,13 @@ SCREENS.lesson = function(scr, params){
     body.append(box);
     if(!step){ finishLevel(scr, ctx); return; }
     const next = ()=>{ ctx.stepIdx++; renderStep(); };
+    const back = ()=>{ if(ctx.stepIdx>0){ ctx.stepIdx--; renderStep(); } else go('map'); };
     if(step.t==='say') renderSay(box, step, ctx, next);
     else if(step.t==='toy') TOYS[step.toy](box, step, ctx, next);
     else if(step.t==='quiz') renderQuiz(box, step, ctx, next);
     else if(step.t==='trade') tradeRunner(box, step.cfg, ctx, next);
     else next();
+    box.append(h('button',{cls:'btn ghost',style:{marginTop:'10px'},onclick:back},'‹ Back'));
   }
   renderStep();
 };
