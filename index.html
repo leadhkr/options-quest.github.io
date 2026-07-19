@@ -185,7 +185,7 @@ svg text{font-family:var(--font);}
   transition:border-color .12s, transform .1s;}
 .gloss-fab:hover{border-color:var(--accent);transform:translateY(-1px);}
 .gloss-back{position:fixed;inset:0;background:rgba(4,6,10,.55);z-index:40;animation:fadein .15s both;}
-.gloss{position:fixed;top:0;right:0;height:100%;width:min(400px,94vw);z-index:41;background:var(--bg2);
+.gloss{position:fixed;top:0;right:0;height:100%;width:min(480px,96vw);z-index:41;background:var(--bg2);
   border-left:1px solid var(--line);display:flex;flex-direction:column;animation:glossin .22s ease both;}
 @keyframes glossin{from{transform:translateX(60%);opacity:.5;}to{transform:none;opacity:1;}}
 .gloss header{display:flex;align-items:center;gap:10px;padding:16px 18px 10px;}
@@ -200,9 +200,21 @@ svg text{font-family:var(--font);}
 .gloss .body{flex:1;overflow-y:auto;padding:0 18px 26px;overscroll-behavior:contain;}
 .gloss .cat{font-size:10.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--accent2);
   margin:18px 0 4px;padding-bottom:5px;border-bottom:1px solid var(--line);}
-.gloss .entry{padding:9px 0;border-bottom:1px solid rgba(35,43,58,.5);}
-.gloss .entry .term{font-weight:700;font-size:13.5px;}
-.gloss .entry .def{color:var(--dim);font-size:12.5px;line-height:1.55;margin-top:2px;}
+.gloss .entry{border-bottom:1px solid rgba(35,43,58,.5);}
+.gloss .ehead{display:flex;align-items:center;gap:8px;padding:10px 0;cursor:pointer;}
+.gloss .ehead:hover .term{color:var(--accent2);}
+.gloss .entry .term{font-weight:700;font-size:13.5px;transition:color .12s;}
+.gloss .entry .def{color:var(--dim);font-size:12.5px;line-height:1.5;margin-top:2px;}
+.gloss .chev{color:var(--faint);font-size:12px;transition:transform .15s;flex:0 0 auto;}
+.gloss .entry.open .chev{transform:rotate(180deg);color:var(--accent2);}
+.gloss .more{display:none;padding:0 0 14px;}
+.gloss .entry.open .more{display:block;animation:popin .15s both;}
+.gloss .ldef{font-size:13px;line-height:1.65;color:#c3cad8;}
+.gloss .ldef b{color:var(--accent2);}
+.gloss .exbox{background:rgba(212,167,44,.07);border:1px solid rgba(212,167,44,.3);border-radius:8px;
+  padding:10px 12px;font-size:12.5px;line-height:1.6;color:#d9caa3;margin:10px 0 0;}
+.gloss .exbox b{color:var(--gold);}
+.gloss .ghint{color:var(--faint);font-size:11.5px;margin:0 18px 4px;}
 .gloss .none{color:var(--faint);font-size:13px;text-align:center;padding:30px 0;}
 </style>
 </head>
@@ -2889,88 +2901,559 @@ SCREENS.sandbox = function(scr){
 /* ============================================================
    7d. GLOSSARY — searchable dictionary drawer (any screen)
    ============================================================ */
+// ---- glossary mini-visualizations ------------------------------
+function gvSvg(H){ return hs('svg',{viewBox:'0 0 460 '+H, style:'width:100%;height:auto;display:block;'}); }
+function gvWrap(svg, cap){
+  const w = h('div',{cls:'card sub',style:{padding:'8px 10px',margin:'10px 0'}},svg);
+  if(cap) w.append(h('div',{cls:'center dim',style:{fontSize:'11.5px',paddingTop:'4px'}},cap));
+  return w;
+}
+function gvLine(svg, pts, color, width){
+  let d=''; for(let i=0;i<pts.length;i++) d+=(i?'L':'M')+pts[i][0].toFixed(1)+' '+pts[i][1].toFixed(1)+' ';
+  svg.append(hs('path',{d,fill:'none',stroke:color,'stroke-width':width||2.2,'stroke-linejoin':'round'}));
+}
+function gvText(svg,x,y,txt,color,size,anchor,bold){
+  svg.append(hs('text',{x,y,fill:color||'#8a93a6','font-size':size||11,'text-anchor':anchor||'start','font-weight':bold?700:500},txt));
+}
+const GVIZ = {
+  payoff(p){
+    const d = payoffDiagram({height:170, showToday:false});
+    d.update({legs:p.legs, spot:p.spot, iv:0.3, dte:0, range:p.range});
+    const el = d.el; el.style.margin='10px 0';
+    if(p.cap) el.append(h('div',{cls:'center dim',style:{fontSize:'11.5px',padding:'4px 0 2px'}},p.cap));
+    return el;
+  },
+  theta(){
+    const svg = gvSvg(160), pts=[];
+    for(let d=60;d>=0;d--) pts.push([20+(60-d)/60*420, 140-5.5*Math.sqrt(d/60)*22]);
+    svg.append(hs('line',{x1:20,x2:440,y1:140,y2:140,stroke:'#2a3344'}));
+    gvLine(svg, pts, '#e5484d');
+    gvText(svg,24,20,'option value (stock not moving)','#e6e9f0',11.5,'start',1);
+    gvText(svg,120,152,'60 days left');
+    gvText(svg,438,152,'expiry','#8a93a6',11,'end');
+    gvText(svg,330,70,'the melt SPEEDS UP','#e5484d',11.5,'middle',1);
+    svg.append(hs('path',{d:'M330 78 L360 110',stroke:'#e5484d','stroke-width':1.2,'stroke-dasharray':'3 3',fill:'none'}));
+    return gvWrap(svg,'Time value doesn’t leak evenly — the last weeks are the steepest part of the slide.');
+  },
+  delta(){
+    const svg = gvSvg(170), pts=[];
+    for(let s=70;s<=130;s+=1) pts.push([20+(s-70)/60*420, 150 - bsPrice('call',s,100,30/252,0.3)*4.2]);
+    gvLine(svg, pts, '#60a5fa');
+    // tangent at ATM
+    svg.append(hs('line',{x1:160,x2:300,y1:150-bsPrice('call',95,100,30/252,.3)*4.2- (95-95),y2:0,stroke:'none'}));
+    const y0=150-bsPrice('call',100,100,30/252,0.3)*4.2;
+    svg.append(hs('line',{x1:170,y1:y0+30*0.53*0.42*10/10,x2:290,y2:y0-30*0.53*0.42,stroke:'#d4a72c','stroke-width':1.4,'stroke-dasharray':'5 4'}));
+    gvText(svg,24,20,'call option price','#e6e9f0',11.5,'start',1);
+    gvText(svg,230,164,'stock price →','#8a93a6',11,'middle');
+    gvText(svg,300,y0-18,'slope here = delta ≈ 0.50','#d4a72c',11.5,'middle',1);
+    return gvWrap(svg,'Delta is just the slope: how fast the option price climbs as the stock climbs.');
+  },
+  gamma(){
+    const svg = gvSvg(170);
+    for(const [T,color,label,ly] of [[30/252,'#60a5fa','30 days left — gentle',60],[3/252,'#e5484d','3 days left — a cliff',30]]){
+      const pts=[];
+      for(let s=80;s<=120;s+=0.5) pts.push([20+(s-80)/40*420, 145-bsDelta('call',s,100,T,0.3)*115]);
+      gvLine(svg, pts, color);
+      gvText(svg,330,ly,label,color,11.5,'start',1);
+    }
+    gvText(svg,24,20,'delta (0 → 1)','#e6e9f0',11.5,'start',1);
+    gvText(svg,230,164,'stock price (strike $100) →','#8a93a6',11,'middle');
+    return gvWrap(svg,'Gamma = how fast delta changes. Near expiry the same $2 move flips the option from dead to alive — that steep middle is gamma risk.');
+  },
+  iv(){
+    const svg = gvSvg(170);
+    for(const [sig,color,label] of [[9,'#2fbf71','calm stock — IV 20%'],[26,'#e5484d','wild stock — IV 60%']]){
+      const pts=[];
+      for(let x=-115;x<=115;x+=2) pts.push([230+x*1.8, 150-Math.exp(-x*x/(2*sig*sig))*115]);
+      gvLine(svg, pts, color);
+    }
+    gvText(svg,140,26,'calm: IV 20%','#2fbf71',11.5,'end',1);
+    gvText(svg,320,60,'wild: IV 60%','#e5484d',11.5,'start',1);
+    gvText(svg,230,164,'← where the stock might end up →','#8a93a6',11,'middle');
+    return gvWrap(svg,'IV describes how wide the market thinks the range of outcomes is. Wider bell = pricier options.');
+  },
+  skew(){
+    const svg = gvSvg(160), pts=[];
+    for(let K=64;K<=96;K+=1) pts.push([20+(K-64)/32*420, 140-((0.28+Math.max(0,(80-K))*0.011-Math.max(0,K-80)*0.0035)-0.20)*550]);
+    gvLine(svg, pts, '#60a5fa');
+    svg.append(hs('line',{x1:230,x2:230,y1:30,y2:140,stroke:'#2a3344','stroke-dasharray':'4 4'}));
+    gvText(svg,24,20,'implied volatility','#e6e9f0',11.5,'start',1);
+    gvText(svg,230,152,'stock here','#8a93a6',10.5,'middle');
+    gvText(svg,60,152,'← puts (crash side)','#e5484d',10.5,'start');
+    gvText(svg,438,152,'calls →','#8a93a6',10.5,'end');
+    gvText(svg,90,50,'downside puts priced RICH','#e5484d',11.5,'start',1);
+    return gvWrap(svg,'The “smirk”: equally-far-away puts cost more than calls. The market has priced in crash fear since 1987.');
+  },
+  value(){
+    const svg = gvSvg(150);
+    const bar=(y,intr,ext,label)=>{
+      const x0=130, scale=30;
+      if(intr>0) svg.append(hs('rect',{x:x0,y:y-14,width:intr*scale,height:28,fill:'#2fbf71',rx:4}));
+      svg.append(hs('rect',{x:x0+intr*scale,y:y-14,width:ext*scale,height:28,fill:'#3b82f6',rx:4}));
+      gvText(svg,x0-8,y+4,label,'#e6e9f0',11.5,'end',1);
+      gvText(svg,x0+intr*scale+ext*scale+8,y+4,'$'+(intr+ext).toFixed(2),'#e6e9f0',11.5,'start',1);
+      if(intr>0) gvText(svg,x0+intr*scale/2,y+4,'real: $'+intr,'#04241a',10.5,'middle',1);
+      gvText(svg,x0+intr*scale+ext*scale/2,y+4,'hope: $'+ext,'#fff',10.5,'middle',1);
+    };
+    gvText(svg,230,20,'stock at $103 — two calls compared','#e6e9f0',11.5,'middle',1);
+    bar(55, 8, 1.4, '$95 call (ITM)');
+    bar(105, 0, 1.1, '$110 call (OTM)');
+    return gvWrap(svg,'Every premium = intrinsic (green, cash-it-now) + extrinsic (blue, hope + time). The blue part always melts to $0 by expiry.');
+  },
+  moneyness(){
+    const svg = gvSvg(130);
+    svg.append(hs('rect',{x:20,y:50,width:190,height:26,fill:'rgba(229,72,77,.25)',rx:4}));
+    svg.append(hs('rect',{x:210,y:50,width:40,height:26,fill:'rgba(212,167,44,.3)',rx:4}));
+    svg.append(hs('rect',{x:250,y:50,width:190,height:26,fill:'rgba(47,191,113,.25)',rx:4}));
+    gvText(svg,115,67,'OUT of the money','#e5484d',11.5,'middle',1);
+    gvText(svg,230,67,'AT','#d4a72c',11,'middle',1);
+    gvText(svg,345,67,'IN the money','#2fbf71',11.5,'middle',1);
+    gvText(svg,230,40,'strike $100','#d4a72c',11,'middle',1);
+    gvText(svg,20,105,'stock $80',' #8a93a6',10.5,'start');
+    gvText(svg,440,105,'stock $120','#8a93a6',10.5,'end');
+    gvText(svg,230,20,'for a CALL (a put is the mirror image)','#e6e9f0',11.5,'middle',1);
+    return gvWrap(svg);
+  },
+  bidask(){
+    const svg = gvSvg(150);
+    svg.append(hs('line',{x1:60,x2:400,y1:75,y2:75,stroke:'#2a3344','stroke-width':2}));
+    for(const [x,label,price,color] of [[110,'BID','$2.80','#e5484d'],[230,'mid','$3.00','#8a93a6'],[350,'ASK','$3.20','#2fbf71']]){
+      svg.append(hs('line',{x1:x,x2:x,y1:60,y2:90,stroke:color,'stroke-width':2.5}));
+      gvText(svg,x,50,label,color,11.5,'middle',1);
+      gvText(svg,x,108,price,color,11.5,'middle',1);
+    }
+    gvText(svg,110,132,'you SELL here','#e5484d',10.5,'middle');
+    gvText(svg,350,132,'you BUY here','#2fbf71',10.5,'middle');
+    gvText(svg,230,25,'one round trip costs the gap: $0.40 × 100 = $40','#e6e9f0',11.5,'middle',1);
+    return gvWrap(svg);
+  },
+  drawdown(){
+    const svg = gvSvg(180);
+    const rows=[[-10,11],[-25,33],[-50,100]];
+    rows.forEach(([loss,need],i)=>{
+      const y=40+i*44, sc=1.35;
+      svg.append(hs('rect',{x:200-Math.abs(loss)*sc,y:y,width:Math.abs(loss)*sc,height:16,fill:'#e5484d',rx:3}));
+      svg.append(hs('rect',{x:202,y:y,width:need*sc,height:16,fill:'#2fbf71',rx:3}));
+      gvText(svg,200-Math.abs(loss)*sc-8,y+12,'lose '+Math.abs(loss)+'%','#e5484d',11,'end',1);
+      gvText(svg,206+need*sc,y+12,'need +'+need+'% back','#2fbf71',11,'start',1);
+    });
+    gvText(svg,230,24,'why deep losses are so hard to un-lose','#e6e9f0',11.5,'middle',1);
+    return gvWrap(svg,'Losses and gains are not symmetric: the deeper the hole, the disproportionately bigger the climb out.');
+  },
+  ev(){
+    const svg = gvSvg(160);
+    for(let i=0;i<9;i++){
+      const x=40+i*44;
+      svg.append(hs('rect',{x, y:50, width:32, height:22, fill:'#2fbf71', rx:4}));
+      gvText(svg,x+16,65,'+20','#04241a',10,'middle',1);
+    }
+    svg.append(hs('rect',{x:40+9*44-8, y:36, width:46, height:50, fill:'#e5484d', rx:4}));
+    gvText(svg,40+9*44+15,65,'−400','#fff',10.5,'middle',1);
+    gvText(svg,230,24,'a "90% win rate" strategy, over 10 typical trades','#e6e9f0',11.5,'middle',1);
+    gvText(svg,230,120,'9 wins × $20 = +$180      1 loss = −$400','#8a93a6',11.5,'middle');
+    gvText(svg,230,142,'net: −$220. The win rate was a decoy.','#e5484d',12,'middle',1);
+    return gvWrap(svg);
+  },
+  ruin(){
+    const svg = gvSvg(170);
+    const mk=(frac,seed)=>{ const r=mulberry32(seed); const d=[10000];
+      for(let i=1;i<=60;i++){ const b=d[i-1]; if(b<=500){d.push(b);continue;} const bet=b*frac; d.push(b+(r()<0.55?bet:-bet)); } return d; };
+    for(const [frac,color,label,ly] of [[0.04,'#2fbf71','risk 4% per trade',40],[0.40,'#e5484d','risk 40% per trade',120]]){
+      const data=mk(frac,77); const mx=Math.max(...mk(0.04,77));
+      const pts=data.map((v,i)=>[20+i/60*420, 150-(v/mx)*125]);
+      gvLine(svg, pts, color);
+      gvText(svg,300,ly,label,color,11.5,'start',1);
+    }
+    gvText(svg,24,20,'same strategy · same wins & losses · different bet size','#e6e9f0',11,'start',1);
+    gvText(svg,230,164,'60 trades →','#8a93a6',11,'middle');
+    return gvWrap(svg);
+  },
+  vrp(){
+    const svg = gvSvg(170);
+    const yrs=[[30,24],[29,22],[31,26],[30,44],[28,23],[30,25]];
+    yrs.forEach(([iv,rv],i)=>{
+      const x=45+i*68;
+      svg.append(hs('rect',{x, y:140-iv*2.6, width:24, height:iv*2.6, fill:'#3b82f6', rx:3}));
+      svg.append(hs('rect',{x:x+27, y:140-rv*2.6, width:24, height:rv*2.6, fill: rv>iv?'#e5484d':'#2fbf71', rx:3}));
+      gvText(svg,x+25,155,'yr '+(i+1),'#5b6374',10,'middle');
+    });
+    gvText(svg,120,24,'■ what options charged (IV)','#60a5fa',11,'start',1);
+    gvText(svg,120,40,'■ what the stock actually did','#2fbf71',11,'start',1);
+    gvText(svg,300,60,'← year 4: the exception','#e5484d',10.5,'start');
+    return gvWrap(svg,'Most years, implied > realized — sellers pocket the gap. Occasionally reality overshoots, and that year pays the buyers.');
+  },
+  convex(){
+    const svg = gvSvg(170);
+    const lin=[], cvx=[];
+    for(let x=0;x<=40;x+=1){ lin.push([30+x*10, 40+x*2.4]); cvx.push([30+x*10, 140-x*x*0.075]); }
+    gvLine(svg, lin, '#e5484d'); gvLine(svg, cvx, '#2fbf71');
+    gvText(svg,235,164,'size of the market drop →','#8a93a6',11,'middle');
+    gvText(svg,320,140,'your shares (linear loss)','#e5484d',11,'start',1);
+    gvText(svg,300,38,'your puts (convex gain)','#2fbf71',11,'start',1);
+    gvText(svg,24,20,'what happens as a crash deepens','#e6e9f0',11.5,'start',1);
+    return gvWrap(svg,'Convex payoffs ACCELERATE: a 2× bigger crash pays far more than 2×. That’s why small option positions can offset huge losses.');
+  },
+  kelly(){
+    const svg = gvSvg(170);
+    const pts=[]; const p=0.55;
+    for(let f=0;f<=0.5;f+=0.005){
+      const g = p*Math.log(1+f) + (1-p)*Math.log(1-f);
+      pts.push([30+f/0.5*400, 130-g*9000]);
+    }
+    gvLine(svg, pts, '#60a5fa');
+    svg.append(hs('line',{x1:30+0.1/0.5*400,x2:30+0.1/0.5*400,y1:30,y2:150,stroke:'#2fbf71','stroke-dasharray':'4 4'}));
+    gvText(svg,30+0.1/0.5*400,24,'sweet spot','#2fbf71',11,'middle',1);
+    gvText(svg,400,140,'too big → ruin','#e5484d',11,'middle',1);
+    gvText(svg,24,20,'long-run growth','#e6e9f0',11.5,'start',1);
+    gvText(svg,235,164,'bet size per trade →','#8a93a6',11,'middle');
+    return gvWrap(svg,'Betting more helps — up to a point. Past the peak, MORE aggression produces LESS growth, then ruin. Pros deliberately bet below the peak.');
+  },
+  gap(){
+    const svg = gvSvg(150);
+    const a=[[20,90],[80,86],[140,92],[200,88],[230,90]];
+    const b=[[230,50],[290,54],[350,48],[440,52]];
+    gvLine(svg,a,'#8a93a6'); gvLine(svg,b,'#2fbf71');
+    svg.append(hs('line',{x1:230,x2:230,y1:50,y2:90,stroke:'#d4a72c','stroke-width':2,'stroke-dasharray':'4 3'}));
+    gvText(svg,238,74,'the GAP — no trading happened here','#d4a72c',11,'start',1);
+    gvText(svg,110,120,'yesterday: $100','#8a93a6',11,'middle');
+    gvText(svg,340,120,'this morning: $108','#2fbf71',11,'middle');
+    gvText(svg,24,20,'overnight news → price teleports','#e6e9f0',11.5,'start',1);
+    return gvWrap(svg,'Stop-losses can’t save you from a gap — the price never passes through the levels in between. This is why defined-risk structures matter.');
+  },
+  wheelviz(){
+    const svg = gvSvg(200);
+    const cx=230, cy=100, r=70;
+    svg.append(hs('circle',{cx,cy,r,fill:'none',stroke:'#2a3344','stroke-width':1.5,'stroke-dasharray':'5 5'}));
+    const nodes=[['Sell cash-secured put',cx,cy-r-8],['Assigned — you own it',cx+r+8,cy,'start'],['Sell covered calls',cx,cy+r+16],['Called away + profit',cx-r-8,cy,'end']];
+    for(const [t,x,y,anch] of nodes) gvText(svg,x,y,t,'#e6e9f0',11.5,anch||'middle',1);
+    gvText(svg,cx,cy-6,'premium','#2fbf71',11,'middle',1);
+    gvText(svg,cx,cy+10,'every step','#2fbf71',11,'middle',1);
+    svg.append(hs('path',{d:'M'+(cx+r*0.75)+' '+(cy-r*0.72)+' A '+r+' '+r+' 0 0 1 '+(cx+r*0.98)+' '+(cy-r*0.12),fill:'none',stroke:'#3b82f6','stroke-width':2,'marker-end':'url(#garr)'}));
+    svg.append(hs('defs',{html:'<marker id="garr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6"/></marker>'}));
+    return gvWrap(svg,'A repeating income loop. If never assigned, you just keep collecting put premium at the top of the wheel.');
+  },
+  manage(){
+    const svg = gvSvg(170);
+    const path=[0,8,14,22,28,34,39,44,49,52,55,57,58,54,30,-25,-90,-160,-205,-230,-240];
+    const pts=path.map((v,i)=>[20+i/20*420, 90-v*0.42]);
+    svg.append(hs('line',{x1:20,x2:440,y1:90,y2:90,stroke:'#2a3344','stroke-dasharray':'4 4'}));
+    svg.append(hs('line',{x1:20,x2:440,y1:90-50*0.42,y2:90-50*0.42,stroke:'#2fbf71','stroke-width':1.2,'stroke-dasharray':'5 4'}));
+    gvLine(svg,pts,'#60a5fa');
+    gvText(svg,438,90-50*0.42-6,'+50% of max — LEAVE HERE','#2fbf71',11,'end',1);
+    gvText(svg,380,160,'…or ride it into this','#e5484d',11.5,'middle',1);
+    gvText(svg,24,20,'a short-premium trade’s life ($100 credit)','#e6e9f0',11.5,'start',1);
+    return gvWrap(svg);
+  },
+  compound(){
+    const svg = gvSvg(160);
+    const a=[], b=[];
+    for(let m=0;m<=120;m+=2){ a.push([20+m/120*420, 140-(10000+m*100)/40000*115]); b.push([20+m/120*420, 140-(10000*Math.pow(1.011,m))/40000*115]); }
+    gvLine(svg,a,'#8a93a6'); gvLine(svg,b,'#2fbf71');
+    gvText(svg,340,116,'saving $100/mo','#8a93a6',11,'start',1);
+    gvText(svg,330,34,'compounding 1.1%/mo','#2fbf71',11,'start',1);
+    gvText(svg,235,156,'10 years →','#8a93a6',11,'middle');
+    return gvWrap(svg,'Compounding curves upward because gains start earning gains. It’s also why protecting the downside matters more than chasing upside.');
+  },
+};
+function glossViz(spec){ const [kind,p]=spec; return GVIZ[kind]? GVIZ[kind](p||{}) : null; }
+
+// ---- glossary data ---------------------------------------------
+// {t: term, s: one-line summary, d: plain-English explanation (html), ex: worked example (html), viz: [kind, params]}
 const GLOSSARY = [
-['Basics', [
- ['Option','A contract giving the right — not the obligation — to buy or sell 100 shares of a stock at a fixed price before a set date. Calls and puts are the two kinds.'],
- ['Call','The right to BUY the stock at the strike price. Gains value when the stock rises. Think: a coupon locking in a purchase price.'],
- ['Put','The right to SELL the stock at the strike price. Gains value when the stock falls. Think: insurance on shares.'],
- ['Underlying','The stock (or index) an option is based on. A SBUX call\'s underlying is SBUX stock.'],
- ['Strike price','The fixed price locked into the option — the price you may buy at (call) or sell at (put).'],
- ['Premium','The price you pay (or collect) for an option itself. A buyer\'s maximum possible loss; a seller\'s maximum possible gain.'],
- ['Expiration','The date the option contract ends. After it, the right vanishes — the option is exercised, sold, or expires worthless.'],
- ['DTE','Days To Expiration — how many days remain on the option\'s clock.'],
- ['Contract multiplier','One option contract controls 100 shares, so a $1.50 premium really costs $150. Always multiply by 100.'],
- ['Leg','One component of a multi-part position. A spread has two legs; an iron condor has four.'],
- ['Exercise','Actually using the option\'s right — buying (call) or selling (put) the shares at the strike.'],
- ['Assignment','What the SELLER experiences when the buyer exercises: being required to deliver or purchase the shares at the strike.'],
- ['Expire worthless','An out-of-the-money option at expiration is worth $0. The buyer loses the premium; the seller keeps it.'],
- ['In the money (ITM)','An option with real, cash-it-now value: a call below the stock price, or a put above it.'],
- ['At the money (ATM)','An option whose strike is at (or very near) the current stock price.'],
- ['Out of the money (OTM)','An option with no intrinsic value yet: a call above the stock price, or a put below it. Its entire price is hope and time.'],
- ['Intrinsic value','The real value of exercising right now — stock price vs strike. Never negative.'],
- ['Extrinsic value','Everything in the premium beyond intrinsic value: payment for time and possibility. Melts to zero by expiration.'],
- ['Break-even','The stock price at which an option trade neither makes nor loses money at expiration. For a bought call: strike + premium.'],
- ['Option chain','The full table of available options: every strike and expiration, calls on one side, puts on the other.'],
- ['Bid / Ask','The bid is what buyers will pay; the ask is what sellers demand. You buy at the ask, sell at the bid.'],
- ['Bid/ask spread','The gap between bid and ask — an invisible cost paid every round trip. Tight spread = liquid market.'],
- ['Liquidity','How easily a market lets you trade near fair value. Professionals screen for liquidity BEFORE strategy.'],
- ['Slippage','Money lost to the bid/ask spread and price movement while entering or exiting a trade — the market\'s rake.'],
- ['P/L','Profit and loss — how much a position has made or lost.'],
- ['Cost basis','What you effectively paid per share, after adjusting for premiums collected. Assigned at $76 after a $0.55 credit → basis $75.45.'],
+['Markets & Trading Basics', [
+{t:'Stock (share)', s:'A tiny slice of ownership in a company.',
+ d:'Buying a share means you own a small piece of the business. If the company becomes more valuable, your slice is worth more; if it struggles, your slice is worth less. Options are contracts <b>about</b> shares — so this is the foundation everything else sits on.',
+ ex:'You buy 10 shares of DIS at $80 each ($800 total). DIS rises to $88 — your shares are now worth $880, a $80 gain (+10%).'},
+{t:'Ticker symbol', s:'The short code a stock trades under.',
+ d:'Every listed company gets a short abbreviation used on exchanges and in apps: SBUX is Starbucks, PLTR is Palantir, DIS is Disney. Options are named after their ticker too — "the SBUX $100 call."'},
+{t:'Bull market / bullish', s:'Prices rising, or expecting them to rise.',
+ d:'A "bull" attacks by thrusting its horns <b>upward</b> — so bullish means optimistic, betting on prices going up. A bull market is a long stretch of rising prices. If you’re bullish on a stock, calls and put-selling are your tools.'},
+{t:'Bear market / bearish', s:'Prices falling, or expecting them to fall.',
+ d:'A "bear" swipes its paw <b>downward</b> — bearish means pessimistic, betting on prices falling. A bear market is commonly defined as a drop of 20% or more from a peak. Puts profit in exactly this environment.'},
+{t:'Rally', s:'A fast, sustained rise in price.',
+ d:'When a stock climbs sharply over days or weeks, traders call it a rally. Rallies are what call buyers dream of — and what naked call sellers have nightmares about.'},
+{t:'Sell-off', s:'A fast, broad wave of selling that drives prices down.',
+ d:'The opposite of a rally: many holders rushing for the exit at once. Sell-offs tend to be faster and more violent than rallies — markets "take the stairs up and the elevator down." This asymmetry is why puts carry a permanent premium (see <b>Skew</b>).'},
+{t:'Gap (gap up / gap down)', s:'The price jumps overnight — skipping every price in between.',
+ d:'Stocks mostly trade during market hours, but news doesn’t wait. When big news lands overnight, the stock simply <b>opens</b> at a new price the next morning — it never trades through the levels in between. Gaps are why "I’ll just sell if it starts falling" is not a real safety plan, and why professionals prefer risk that’s capped in advance.',
+ ex:'PLTR closes at $50. Earnings disappoint after the bell. It opens the next morning at $44 — nobody got to sell at $49, $47, or $45. A stop-loss at $48 would have sold at $44.',
+ viz:['gap']},
+{t:'Sideways / range-bound', s:'A stock bouncing between two levels, going nowhere.',
+ d:'Not every market trends. Often a stock just oscillates inside a range (say $95–$105) for weeks. Directional traders find this boring; premium sellers find it delicious — range-bound + time passing = short options quietly earning their keep (see <b>Iron condor</b>).'},
+{t:'Catalyst', s:'A scheduled or surprise event that can move a stock hard.',
+ d:'Earnings reports, product launches, court rulings, FDA decisions, elections. Catalysts matter doubly for options: they move the stock AND they inflate implied volatility beforehand. The professional question is never "is a catalyst coming?" but "is the move it might cause priced in already?"'},
+{t:'Binary event', s:'A catalyst with two wildly different outcomes.',
+ d:'A court ruling is won or lost; a drug is approved or rejected. The stock will jump one way or the other — you just don’t know which. Straddles and strangles are built for binaries… but only when the options market is <b>under</b>-pricing the jump (check IV rank first).'},
+{t:'Earnings report', s:'A company’s quarterly results — the most common catalyst.',
+ d:'Four times a year, public companies report revenue and profit. Stocks routinely gap several percent on the news. For option traders the trap is famous: everyone KNOWS earnings move stocks, so option prices balloon beforehand and collapse right after (the <b>IV crush</b>).'},
+{t:'Dividend', s:'Cash a company pays its shareholders periodically.',
+ d:'Some companies pay out part of their profit as cash per share, typically quarterly. Relevant to options because a stock’s price drops by roughly the dividend amount on the "ex-dividend" date — and deep-ITM call owners sometimes exercise early to capture it.'},
+{t:'Volume', s:'How many shares (or contracts) traded today.',
+ d:'A raw activity meter. High volume means lots of participants and usually tighter, fairer prices. An option with almost no volume is a room with nobody in it — you’ll struggle to get in or out at a fair price.'},
+{t:'Open interest', s:'How many option contracts currently exist and remain open.',
+ d:'Unlike shares, option contracts are created and destroyed as people trade. Open interest counts the contracts still alive at a strike. Alongside volume, it’s your best gauge of an option’s liquidity — prefer strikes with thousands of contracts open, not dozens.'},
+{t:'Market maker', s:'The professional on the other side of most option trades.',
+ d:'Market makers continuously quote both a buy price (bid) and sell price (ask) so a market always exists. They earn the spread between the two, and hedge away the directional risk of what they buy or sell within seconds (see <b>Delta-neutral</b>). They’re not your enemy — but the spread they charge is your cost.'},
+{t:'Liquidity', s:'How easily you can trade near a fair price.',
+ d:'A liquid market has many buyers and sellers, tight bid/ask spreads, and big open interest — you can get in AND out without giving up much. Illiquid options can show paper profits you can’t actually collect. Professionals treat liquidity as a filter that comes <b>before</b> strategy: if the market is thin, there is no trade.',
+ ex:'Option A quotes $2.95/$3.05 (tight). Option B quotes $2.40/$3.60 (wide). Both "mid" at $3.00 — but round-tripping B costs you $120 per contract vs $10 for A.'},
+{t:'Slippage', s:'The money silently lost getting in and out of trades.',
+ d:'The gap between the price you hoped for and the price you actually got — mostly the bid/ask spread, plus any movement while your order fills. It feels tiny per trade and compounds brutally across a year of trading. Trade liquid names and it stays a rounding error; trade illiquid ones and it quietly eats your whole edge.',
+ viz:['bidask']},
+{t:'Leverage', s:'Controlling a big position with a small amount of money.',
+ d:'Options are naturally leveraged: a few hundred dollars of premium controls 100 shares worth thousands. Leverage multiplies BOTH directions — percentage gains look heroic and percentage losses hit 100% easily. Leverage is why option position sizing matters even more than stock position sizing.',
+ ex:'$300 buys one SBUX call controlling $10,000 of stock. A 5% stock rally might double your $300; a quiet month might wipe it out entirely.'},
+{t:'Notional value', s:'The full size of what your contract controls.',
+ d:'One option contract’s notional = 100 × the stock price — the true economic size hiding behind a small premium. A "$2 option" on a $100 stock is really a claim on $10,000 of stock. Pros size positions by notional exposure and max loss, never by premium spent.'},
+{t:'Hedge / hedging', s:'A position added to reduce a risk you already have.',
+ d:'Hedging is buying an offset: puts against shares you own, shares against option deltas, wings against short strikes. A good hedge costs something and usually "loses" — that’s fine; its job is to cap catastrophe, not to make money. Think seatbelt, not lottery ticket.'},
+{t:'Diversification', s:'Spreading risk so one bad thing can’t sink you.',
+ d:'Owning many unrelated positions means no single disaster is fatal. For option sellers there’s a catch: in a real crash, everything falls <b>together</b> — correlations go to one. Diversification helps on normal days; tail hedges cover the abnormal ones.'},
+{t:'Edge', s:'A repeatable reason your trades should make money on average.',
+ d:'An edge is a structural advantage: the volatility risk premium, skew harvesting, superior information, better execution. "I feel like it’s going up" is not an edge. Without an edge, trading is paying spreads and fees to flip coins — the casino patron, not the casino.'},
+{t:'Backtest', s:'Testing a strategy against historical data before risking money.',
+ d:'Run the rules on the past and see what they would have produced — win rate, average P/L, worst drawdown. Backtests built the rules this course teaches (the 45-DTE entries, 50% profit-taking, 21-DTE exits). Caution: the past is a guide, not a guarantee, and it’s easy to accidentally "fit" rules to old data.'},
+{t:'P/L (profit and loss)', s:'How much a position or account has made or lost.',
+ d:'"Unrealized" P/L is on paper — the position is still open and the number still moves. "Realized" P/L is locked in when you close. Traders think in P/L per trade, per day (theta!), and per account.'},
+{t:'Compounding', s:'Gains earning gains — the snowball.',
+ d:'If your account grows a steady percentage, the dollars grow faster and faster because each gain enlarges the base for the next one. Compounding is the argument for consistency over home runs — and the reason drawdowns (which interrupt the snowball) are so expensive.',
+ viz:['compound']},
+{t:'Paper trading', s:'Practicing with fake money — like this entire game.',
+ d:'Simulated trading with real mechanics and zero financial risk. Perfect for learning structures and process. Its known limitation: no real fear or greed. The emotions that wreck real accounts don’t show up until real money is on the line — which is why process and sizing rules must become habits BEFORE going live.'},
+]],
+['Options Basics', [
+{t:'Option', s:'A contract giving the RIGHT (not obligation) to buy or sell 100 shares at a set price, until a set date.',
+ d:'Think of it as a printed coupon: "the holder may buy [or sell] 100 shares of SBUX at $100 any time before June 20th." If using the coupon is profitable, use it. If not, throw it away — you can never be forced to use it, and your maximum loss as the buyer is just whatever you paid for the coupon. Everything in options trading is this idea wearing different outfits.',
+ ex:'You pay $150 for a call. Worst case forever: you lose $150. Best case: the stock soars and the coupon becomes worth thousands.'},
+{t:'Call', s:'The right to BUY at the strike. Wins when the stock rises.',
+ d:'A call locks in a purchase price. If the stock climbs above your locked-in price, you can buy cheap and sell at the market — profit. If the stock never gets there, the call quietly expires and you lose only its cost. The payoff shape is the famous "hockey stick": flat loss on the left, unlimited climb on the right.',
+ ex:'SBUX at $100. You pay $2 ($200) for a $100 call. SBUX runs to $110 by expiry → the right to buy at $100 is worth $10/share = $1,000. Profit: $800.',
+ viz:['payoff',{legs:[{type:'call',side:1,strike:100,qty:1,premium:2}],spot:100,range:[85,118],cap:'Long $100 call bought for $2: capped loss, unlimited upside, break-even $102.'}]},
+{t:'Put', s:'The right to SELL at the strike. Wins when the stock falls.',
+ d:'A put is a call’s mirror twin: it locks in a <b>selling</b> price. If the stock collapses below your locked price, the right to sell high while the market trades low is valuable. Puts serve two masters: speculators betting on falls, and owners insuring shares they hold (see <b>Protective put</b>).',
+ ex:'DIS at $80. You pay $1.60 for an $80 put. DIS slides to $72 → the right to sell at $80 is worth $8/share = $800. Profit: $640.',
+ viz:['payoff',{legs:[{type:'put',side:1,strike:80,qty:1,premium:1.6}],spot:80,range:[62,95],cap:'Long $80 put bought for $1.60: profits grow as the stock falls below break-even ($78.40).'}]},
+{t:'Underlying', s:'The stock the option is based on.',
+ d:'An option is a side-bet ABOUT something — that something is the underlying. A "SBUX $100 call" has SBUX stock as its underlying. The option’s entire value is derived from the underlying’s price, which is why options are called <b>derivatives</b>.'},
+{t:'Strike price', s:'The locked-in price written into the option.',
+ d:'The strike is the deal inside the coupon: the price at which you may buy (call) or sell (put). Strikes come in fixed steps ($95, $100, $105…). Choosing a strike is choosing a trade-off: strikes that are already profitable cost more; far-away strikes are cheap lottery tickets.',
+ ex:'With SBUX at $100: a $95 call is expensive (already $5 "in"), a $105 call is cheap (needs a rally to matter), a $115 call costs pennies (needs a miracle).'},
+{t:'Premium', s:'The price of the option itself.',
+ d:'What the buyer pays and the seller collects, quoted per share — so multiply by 100 for real money. The premium is the buyer’s maximum possible loss and the seller’s maximum possible gain. Understanding what’s inside the premium (see <b>Intrinsic</b> and <b>Extrinsic value</b>) is half of this entire subject.',
+ ex:'A quoted premium of $1.85 means one contract costs $185.'},
+{t:'Expiration', s:'The date the option dies.',
+ d:'Options are melting ice cubes with a printed death date. On expiration day the contract settles: in-the-money options convert to their real value; out-of-the-money options vanish worth $0. Every day that passes shaves off a bit of time value — that’s <b>theta</b>.'},
+{t:'DTE (days to expiration)', s:'How much time is left on the clock.',
+ d:'Traders describe options by their remaining lifespan: "a 45-DTE put." More days = more time for things to happen = higher premium. DTE anchors the professional mechanics you’ll see in this course: enter short premium around 45 DTE, be out by around 21 DTE.'},
+{t:'Contract multiplier (×100)', s:'One contract = 100 shares. Always multiply by 100.',
+ d:'Option prices are quoted per share but each contract controls 100 shares. This trips up every beginner exactly once: a "$0.50" option costs $50; being assigned on a $75 put means buying $7,500 of stock. Do the ×100 in your head before every trade.'},
+{t:'Leg', s:'One piece of a multi-part position.',
+ d:'Strategies are built from parts like furniture: a vertical spread has two legs, an iron condor four. Each leg is itself just a bought or sold call or put. When you read "sell the 96 put, buy the 92 put," each of those is a leg.'},
+{t:'Long / short', s:'Long = you bought it. Short = you sold it first.',
+ d:'Trader grammar: being "long" anything means you own it and want it to rise in value; being "short" means you sold it (even something you never owned — you sold the obligation) and want it to fall or expire worthless. You can be long a stock, long a call, short a put, short a spread. The words say nothing about bullish/bearish by themselves — a short put is actually a bullish position!'},
+{t:'Exercise', s:'Actually using the option’s right.',
+ d:'Exercising a call = buying the 100 shares at the strike; exercising a put = selling 100 shares at the strike. In practice most traders never exercise — they just sell the option itself, which captures the same value without needing the cash for shares. (US-style "American" options can be exercised any day; most index options are "European" — expiry only.)'},
+{t:'Assignment', s:'What sellers experience when a buyer exercises.',
+ d:'If you SOLD an option and its owner exercises, you’re "assigned": a short call means you must deliver 100 shares at the strike; a short put means you must buy 100 shares at the strike. Assignment isn’t a malfunction — for cash-secured put sellers and wheel traders, it’s a planned outcome.',
+ ex:'You sold a $76 put on DIS. DIS finishes at $74.50. You’re assigned: you buy 100 shares for $7,600. Since you collected $60 premium, your effective cost is $75.40.'},
+{t:'Expire worthless', s:'An OTM option at expiry is worth exactly $0.',
+ d:'If a call finishes below its strike (or a put above), nobody wants a coupon that’s worse than the open market — it evaporates. The buyer loses the premium, the seller keeps 100% of it. Note the framing: most options expire worthless, which sounds pro-seller — but sellers’ rare losses are much larger than their many wins. Count dollars, not frequencies.'},
+{t:'American vs European style', s:'When the option may be exercised.',
+ d:'American-style options (most stock options, including everything in this course) can be exercised on <b>any</b> trading day. European-style (most index options like SPX) only settle at expiration. Practical impact: American-style short options carry early-assignment risk, mostly around dividends.'},
+{t:'Weekly options / LEAPS / 0DTE', s:'The lifespan menu: days, months, or years.',
+ d:'Options exist at many lifespans. <b>Weeklies</b> expire within days — cheap, violent, theta-heavy. <b>LEAPS</b> run a year or more — slow, expensive, sometimes used as stock substitutes. <b>0DTE</b> options expire TODAY — pure gamma, adrenaline-priced, and the fastest way for a beginner to donate money. Match lifespan to your thesis: how long does your idea need to play out?'},
+{t:'Moneyness (ITM / ATM / OTM)', s:'Where the stock sits relative to the strike.',
+ d:'<b>In the money</b>: the option already has real value (call below the stock price, put above it). <b>At the money</b>: strike ≈ stock price — maximum suspense, maximum time value. <b>Out of the money</b>: no real value yet, priced purely on hope. Moneyness drives everything: delta, theta, premium, probability.',
+ viz:['moneyness']},
+{t:'Intrinsic value', s:'The real, cash-it-right-now part of a premium.',
+ d:'What exercising today would be worth: for a call, stock price minus strike (if positive); for a put, strike minus stock. It can never be negative — an option is a right, not a duty. Intrinsic value doesn’t decay; it’s the solid part of the price.',
+ ex:'Stock at $103: a $95 call has $8 intrinsic. A $110 call has $0 — whatever it costs is entirely hope.'},
+{t:'Extrinsic value (time value)', s:'The hope-and-time part of a premium. Always melts to zero.',
+ d:'Whatever you pay above intrinsic value is extrinsic: payment for the <b>possibility</b> that things improve before expiry. More time and more volatility = more extrinsic. Its defining property: at expiration it is exactly $0, always. Option buyers are extrinsic’s victims; sellers are its landlords.',
+ viz:['value']},
+{t:'Break-even', s:'The stock price where the trade makes exactly $0 at expiry.',
+ d:'Because you paid a premium, the stock crossing your strike isn’t enough — it must cross strike + premium (calls) or strike − premium (puts). Between the strike and break-even lies the beginner’s graveyard: "the stock went up and I still lost money."',
+ ex:'Buy a $100 call for $1.54: break-even $101.54. Stock finishes $100.80 — above the strike, below break-even. You were right about direction and still lost $74.'},
+{t:'Option chain', s:'The big table of every available option.',
+ d:'The chain lists every strike and expiration: calls on the left, puts on the right, strikes down the middle, with prices and Greeks in the columns. Reading a chain fluently — spotting where delta ≈ 0.50, where extrinsic value peaks, which strikes are liquid — is a core professional skill (Level 2.4 trains it).'},
+{t:'Bid / Ask', s:'The two prices every market really has.',
+ d:'The <b>bid</b> is the highest price buyers will pay right now; the <b>ask</b> is the lowest sellers will accept. You buy at the ask and sell at the bid — always the worse side. The "mid" between them is the theoretical fair price you’ll rarely quite get.',
+ viz:['bidask']},
+{t:'Bid/ask spread', s:'The gap between bid and ask — an invisible toll.',
+ d:'Every round trip (in and out) pays this gap once. As a percentage of the premium it’s the honest measure: a $0.05 spread on a $3.00 option (1.7%) is fine; a $0.60 spread on the same option (20%) means the trade starts 20% underwater. Tight spreads live where volume and open interest live.'},
+{t:'Credit / Debit', s:'Whether opening a position pays you or costs you.',
+ d:'A <b>debit</b> trade costs money to open (buying options or debit spreads) — your risk is what you paid. A <b>credit</b> trade pays you up front (selling options or credit spreads) — the credit is your maximum gain, and your risk lies elsewhere. "Sold for a $70 credit" = $70 landed in your account at entry.'},
+{t:'Spread width & wings', s:'The distance between a spread’s strikes — which sets its max loss.',
+ d:'In any vertical spread, (width between strikes − credit received) × 100 = maximum loss. The bought further-out options in a condor are its <b>wings</b> — the safety net that turns unlimited risk into defined risk. Wider width = more credit but more risk; the seesaw never sleeps.',
+ ex:'Sell the $96/$92 put spread (width $4) for $0.70 credit: max gain $70, max loss (4 − 0.70) × 100 = $330.'},
+{t:'Cost basis', s:'What you effectively paid per share, after all premiums.',
+ d:'Premiums you collect reduce what your shares truly cost you; premiums you pay increase it. Wheel traders live and die by cost basis — every put and call sold clicks it lower, until even a mediocre stock exit turns profitable.',
+ ex:'Assigned at $76 after collecting $0.55 on the put, then $0.45 on a covered call: cost basis $75.00. Shares called away at $78 → real profit $3.00/share.'},
 ]],
 ['Greeks & Volatility', [
- ['Greeks','The sensitivity dials of an option: delta (direction), gamma (delta\'s change), theta (time), vega (volatility). Named after Greek letters.'],
- ['Delta','How much the option price moves per $1 move in the stock (0 to 1 for calls, 0 to −1 for puts). Doubles as a rough probability of finishing ITM.'],
- ['Gamma','How fast delta itself changes as the stock moves. Explodes near expiration — the reason short options get violent late in their life.'],
- ['Theta','Daily time decay — how much value an option loses per day, all else equal. Works against buyers, pays sellers.'],
- ['Vega','How much the option price changes when implied volatility moves 1 point. Long options are long vega.'],
- ['Implied volatility (IV)','The market\'s priced-in expectation of future movement, expressed as an annualized %. High IV = expensive options.'],
- ['Realized volatility','How much the stock ACTUALLY moves. Compare with implied volatility to judge whether options were over- or under-priced.'],
- ['Volatility risk premium','The persistent tendency of implied volatility to exceed realized volatility — options are insurance, and insurance is priced above fair. The structural edge of premium sellers.'],
- ['IV crush','The sharp collapse of implied volatility right after a known event (like earnings) resolves. Can make a call lose money even when the stock gaps up.'],
- ['IV rank','Where today\'s IV sits within the stock\'s own 52-week IV range (0–100). The professional signal: sell premium when high, buy when low.'],
- ['Skew (volatility smirk)','Downside puts trade at higher IV than equidistant upside calls — a permanent crash premium priced in ever since October 1987.'],
- ['Black-Scholes','The Nobel-winning formula that prices options from stock price, strike, time, interest rate, and volatility. Powers every price in this game.'],
+{t:'The Greeks', s:'The four dials that predict how an option’s price will react.',
+ d:'Before anything happens, the Greeks tell you what WOULD happen: <b>delta</b> (if the stock moves $1), <b>gamma</b> (how delta itself shifts), <b>theta</b> (if a day passes), <b>vega</b> (if volatility changes). Amateurs watch the P/L; professionals watch the Greeks, because the Greeks are the P/L’s future.'},
+{t:'Delta', s:'How much the option moves per $1 stock move. Also ≈ probability of finishing ITM.',
+ d:'Delta 0.50 means the option gains about 50¢ when the stock gains $1. Deep ITM options approach delta 1 (they move like stock); far OTM approach 0 (they barely notice). Delta’s famous double life: it roughly equals the market’s implied odds the option expires in the money — a 0.30-delta put has ≈30% chance of finishing ITM.',
+ ex:'PLTR rises $2. Your 0.55-delta call gains about $1.10 per share ($110 on the contract).',
+ viz:['delta']},
+{t:'Gamma', s:'How fast delta itself changes — the curvature. Explodes near expiry.',
+ d:'Delta isn’t constant: as the stock climbs toward your call, the call behaves more and more like stock (delta rises). Gamma measures that acceleration. Its danger zone is near expiration around the strike, where tiny stock moves flip an option between worthless and valuable — this is why professionals exit short options around 21 DTE rather than gambling the endgame.',
+ viz:['gamma']},
+{t:'Theta', s:'Time decay: what one quiet day costs (or pays) you.',
+ d:'Every day, an option’s extrinsic value shrinks a little — theta is the per-day amount. For buyers it’s rent silently draining; for sellers it’s salary silently arriving. Two facts to tattoo somewhere: theta accelerates as expiry approaches, and it bites hardest at the money, where extrinsic value is largest.',
+ ex:'Your 7-day ATM call shows theta −0.15: a flat day costs you about $15. The same strike with 30 days left loses only ~$6/day.',
+ viz:['theta']},
+{t:'Vega', s:'Sensitivity to implied volatility: what a 1-point IV change does.',
+ d:'Options get pricier when the market expects more movement. Vega says how much: vega 0.08 means a 1-point IV rise adds ~$8 to the contract’s value. Long options are long vega (vol spikes help you); short options are short vega (vol spikes hurt). Vega is the Greek that ambushes earnings traders — see <b>IV crush</b>.'},
+{t:'Gamma risk', s:'The violent endgame of short options.',
+ d:'When you’ve sold options and expiry nears, gamma makes your P/L hypersensitive: a stock wobble that meant $10 three weeks ago means $100 now. The reward for surviving the last days is small (the leftover premium); the risk is large. That lopsided deal is exactly why the pros’ 21-DTE exit rule exists.'},
+{t:'Delta hedging', s:'Neutralizing direction by holding offsetting stock.',
+ d:'Every option position has a delta — an effective share exposure. Hold that many shares in the opposite direction and direction cancels out: the stock can wiggle and your P/L barely moves. What remains is exposure to volatility and time, which is often the bet you actually wanted to make. This is the daily bread of market makers.',
+ ex:'Long a 0.55-delta call (≈ +55 shares of exposure)? Short 55 actual shares. Net delta ≈ 0.'},
+{t:'Volatility', s:'How much a stock moves around, annualized.',
+ d:'Volatility is movement, measured without caring about direction — a stock that swings 3% daily is more volatile than one drifting 0.3%. Expressed as an annualized percentage: "30% vol" loosely means a typical year’s range is ±30%. It is THE input that option prices are most sensitive to.'},
+{t:'Implied volatility (IV)', s:'The movement the market has priced into the option.',
+ d:'Run an option’s market price backwards through the pricing formula and out comes IV — the amount of future movement buyers and sellers have collectively agreed to price in. High IV = expensive options = the market braces for drama. IV is a forecast, and like all forecasts it is often wrong — profitably wrong, if you know which side to take.',
+ viz:['iv']},
+{t:'Realized volatility', s:'The movement that actually happened.',
+ d:'Look back at what the stock really did — that’s realized (or historical) volatility. The entire vol-trading business is comparing the two: if implied (the forecast) persistently exceeds realized (the reality), sellers of options are being overpaid. Which, on average, they are…'},
+{t:'Volatility risk premium', s:'IV usually runs above realized — options are systematically a bit overpriced.',
+ d:'Across decades and markets, implied volatility exceeds subsequently realized volatility by roughly 3–5 points on average. Why? Options are insurance, and insurers demand profit for bearing tail risk — nobody sells hurricane coverage at cost. This gap is the structural edge behind premium selling… funded by the occasional hurricane actually arriving.',
+ viz:['vrp']},
+{t:'IV crush', s:'The instant IV collapse after a known event resolves.',
+ d:'Before earnings, uncertainty is huge and IV balloons. The second results are out — whatever they are — the uncertainty is gone and IV collapses, often in minutes. Options can lose value even when the stock moves your way, because the vol premium deflates faster than the move adds. The lesson: before an event, ask what move is priced in, not just which direction you expect.',
+ ex:'You buy a PLTR call at 90% IV the night before earnings. PLTR gaps UP 4%… IV crashes to 40%, and your call opens LOWER than you paid.'},
+{t:'IV rank', s:'Where today’s IV sits in the stock’s own 52-week range (0–100).',
+ d:'45% IV means nothing in isolation — panic for a utility, nap-time for a meme stock. IV rank normalizes: (current IV − 52-week low) ÷ (52-week high − low). The professional playbook: IVR above ~50, favor selling premium (it’s rich); below ~25, favor buying (it’s cheap). Always with defined risk — high IV often has a reason.',
+ ex:'PLTR’s IV ranged 22–95% this year; today it’s 40%. IVR = (40−22)/(95−22) ≈ 25 — despite the big number, this is CHEAP for PLTR.'},
+{t:'Skew (the volatility smirk)', s:'Downside puts carry higher IV than equidistant upside calls.',
+ d:'Plot IV against strikes and equity options show a lopsided curve: the further below the stock, the richer the IV. It’s a permanent crash-fear premium, born on Black Monday 1987 and sustained ever since by institutions endlessly buying downside protection. Sellers of put spreads quietly harvest skew; buyers of crash protection knowingly pay it.',
+ viz:['skew']},
+{t:'VIX', s:'The market’s "fear gauge" — IV of the S&P 500, as one number.',
+ d:'The VIX condenses S&P 500 option prices into one 30-day implied volatility number. Historically it lives in the mid-teens, jumps into the 30s during scares, and has spiked above 80 in true crises (2008, 2020). Traders use it as weather report: VIX low = premium cheap everywhere; VIX exploding = insurance suddenly very expensive.'},
+{t:'Black-Scholes', s:'The Nobel-winning formula behind every option price (including this game’s).',
+ d:'In 1973, Black, Scholes and Merton showed an option’s fair price follows from five ingredients: stock price, strike, time left, interest rate, and volatility. Four are known facts — so trading options is really trading the fifth. The formula’s limits (it assumes calm, bell-curved markets) are exactly where tail-risk thinking begins.'},
 ]],
 ['Strategies', [
- ['Covered call','Own 100 shares and sell a call against them. Collects rent; caps upside at the strike. The world\'s most popular income trade.'],
- ['Cash-secured put','Sell a put while holding enough cash to buy the shares if assigned. Gets paid to promise to buy a stock you want, at a discount.'],
- ['Naked option','A sold option with no offsetting shares, cash, or hedge. Naked calls carry unlimited risk — banned on most sensible desks.'],
- ['Vertical spread','Buy one option and sell another of the same type and expiration at a different strike. Caps both risk and reward.'],
- ['Debit spread','A spread you PAY for (e.g., bull call spread). Max loss = what you paid; max gain = strike width minus cost.'],
- ['Credit spread','A spread you\'re PAID for (e.g., bull put spread). Max gain = the credit; max loss = strike width minus credit. Profits if the stock simply doesn\'t cross the short strike.'],
- ['Straddle','Buy (or sell) both the call and put at the same strike. A pure bet on the SIZE of the move, not its direction.'],
- ['Strangle','A straddle\'s cheaper cousin: the call and put strikes are set apart. Costs less, needs a bigger move.'],
- ['Iron condor','A short strangle with protective wings: sell a put spread below and a call spread above. Defined-risk income if the stock stays in a range.'],
- ['The wheel','A cycle: sell cash-secured puts → if assigned, sell covered calls → if called away, repeat. Golden rule: only on stocks you\'d genuinely own.'],
- ['Rolling','Closing an option and opening a similar one at a later expiration (and/or different strike) in a single adjustment — buying time or repositioning.'],
- ['Defined risk','Any position whose worst-case loss is known and capped at entry — spreads, condors, long options. The professional default.'],
- ['Collateral','Cash or margin set aside to guarantee you can honor a short option\'s obligations — e.g., the full strike value behind a cash-secured put.'],
- ['Margin','Borrowed buying power, or the deposit a broker requires to hold risky positions. This game uses cash-secured rules instead.'],
+{t:'Covered call', s:'Own 100 shares, sell a call against them. Rent on stock you hold.',
+ d:'You collect the call’s premium immediately. If the stock stays below the strike: keep shares AND premium, repeat next month. If it rallies past the strike: your shares are sold ("called away") at the strike — profitable, but capped. You’ve traded away the moonshot in exchange for income. Best on stocks you’re happy holding that aren’t going anywhere fast.',
+ ex:'Own 100 DIS at $80. Sell the 30-day $85 call for $0.90 ($90). Sideways month → +$90, repeat. DIS moons to $95 → you still sold at $85 + kept $90 — profit, with a ceiling.',
+ viz:['payoff',{legs:[{type:'stock',side:1,qty:100,premium:80},{type:'call',side:-1,strike:85,qty:1,premium:0.9}],spot:80,range:[68,96],cap:'Stock + short $85 call: downside like stock (minus premium), upside flattens at the strike.'}]},
+{t:'Cash-secured put', s:'Sell a put with the cash set aside to buy the shares. Paid to promise.',
+ d:'You promise to buy 100 shares at the strike if asked, and park the full cash as collateral. The market pays you a premium for that promise. Stock stays up: keep the premium, promise expires. Stock dips through: you buy a stock you wanted at your chosen price — minus the premium. The only rule that matters: only sell puts on stocks you’d GENUINELY be happy to own at that strike.',
+ ex:'DIS at $80. Sell the $76 put for $0.55, holding $7,600 aside. Assigned at $74.9 → you own DIS at an effective $75.45 while day-one buyers paid $80.',
+ viz:['payoff',{legs:[{type:'put',side:-1,strike:76,qty:1,premium:0.55}],spot:80,range:[64,90],cap:'Short $76 put: keep $55 anywhere above $76; below, you buy shares (increasingly at a loss on paper).'}]},
+{t:'Protective put (married put)', s:'Own shares + buy a put = insured stock.',
+ d:'The put is an insurance policy on shares you hold: below the strike, every further dollar of stock loss is refunded by the put. Cost: the premium, which usually expires "wasted" — exactly like home insurance. The professional framing: you’re choosing a known floor for your portfolio in exchange for a known fee.',
+ viz:['payoff',{legs:[{type:'stock',side:1,qty:100,premium:80},{type:'put',side:1,strike:74,qty:1,premium:1.1}],spot:80,range:[60,96],cap:'Stock + $74 put: losses stop at the floor; upside continues (minus the premium paid).'}]},
+{t:'Collar', s:'Own shares + buy a put + sell a call: insurance paid for with your upside.',
+ d:'A protective put funded by a covered call. The sold call’s premium pays for (some of) the put’s cost — often making the insurance nearly free. The price: your upside is capped at the call strike. Result: stock boxed into a known range. Beloved by executives and anyone who must hold a position but can’t stomach its tail risk.',
+ viz:['payoff',{legs:[{type:'stock',side:1,qty:100,premium:80},{type:'put',side:1,strike:74,qty:1,premium:1.1},{type:'call',side:-1,strike:86,qty:1,premium:1.0}],spot:80,range:[62,98],cap:'The collar: floor at $74, ceiling at $86, nearly zero net premium.'}]},
+{t:'Naked option', s:'A sold option with nothing backing it. The account-killer.',
+ d:'"Naked" = short an option without shares, cash, or a hedging leg behind it. A naked put’s risk is the stock going to zero — bad. A naked call’s risk is the stock going to infinity — unbounded. One meme-stock squeeze against a naked call has ended real careers. The professional default is simple: never sell unlimited risk. Wings are cheap; ruin is not.',
+ viz:['payoff',{legs:[{type:'call',side:-1,strike:105,qty:1,premium:1.2}],spot:100,range:[85,130],cap:'Short (naked) $105 call: collect $120 now… and lose without limit if the stock keeps climbing.'}]},
+{t:'Vertical spread', s:'Buy one option, sell another (same type & expiry, different strike).',
+ d:'The workhorse structure of defined-risk trading. The sold leg refunds part of your cost (debit spreads) or the bought leg caps your risk (credit spreads). Every vertical’s worst case and best case are known to the dollar before entry — which makes position sizing honest.'},
+{t:'Debit spread (e.g. bull call spread)', s:'A directional bet at a discount, with capped gain.',
+ d:'Buy a call, sell a higher-strike call. The short leg’s premium cuts your cost roughly in half; in exchange your profit stops at the top strike. Perfect for MODEST directional views — "I think it grinds to $85, not $95." Max loss: the debit paid. Max gain: width minus debit.',
+ ex:'ACME-style setup: buy the $80 call ($2.00), sell the $85 call ($0.50). Net cost $150. Stock at $85+ by expiry → worth $500 → profit $350.',
+ viz:['payoff',{legs:[{type:'call',side:1,strike:80,qty:1,premium:2.0},{type:'call',side:-1,strike:85,qty:1,premium:0.5}],spot:80,range:[72,93],cap:'Bull call spread 80/85 for $1.50: risk $150 to make up to $350.'}]},
+{t:'Credit spread (e.g. bull put spread)', s:'Get paid up front; win if the stock simply doesn’t cross your strike.',
+ d:'Sell a put below the market, buy a further one as the safety net, pocket the difference. The stock can rise, drift, or even dip a little — you keep the credit as long as it stays above the short strike. You’re not betting ON a move; you’re betting AGAINST a big one. Three of four outcomes pay you — in exchange for a max loss larger than the credit.',
+ ex:'Sell the $76 put, buy the $72 put on DIS for $0.80 credit. Max gain $80 (stock above $76); max loss $320 (below $72).',
+ viz:['payoff',{legs:[{type:'put',side:-1,strike:76,qty:1,premium:1.1},{type:'put',side:1,strike:72,qty:1,premium:0.3}],spot:80,range:[64,90],cap:'Bull put spread: flat profit zone right of the short strike; capped loss floor left of the long strike.'}]},
+{t:'Straddle', s:'Buy the call AND the put at the same strike: a pure bet on movement.',
+ d:'Direction becomes irrelevant — a big move either way pays. The catch: you paid two premiums, so the move must beat both combined (wide break-evens). Buy straddles when you expect more chaos than the market has priced (low IV rank + a real catalyst); sell them when the market has priced chaos that won’t come.',
+ ex:'PLTR at $50, the $50 straddle costs $4. You profit below $46 or above $54 — the stock must move over 8%.',
+ viz:['payoff',{legs:[{type:'call',side:1,strike:50,qty:1,premium:2},{type:'put',side:1,strike:50,qty:1,premium:2}],spot:50,range:[40,60],cap:'Long straddle: the V. Loss is capped at the double premium; profit grows with ANY big move.'}]},
+{t:'Strangle', s:'The straddle’s cheaper cousin: call and put at different strikes.',
+ d:'Move the strikes apart and the price drops sharply — but the stock must now travel further before either side pays. Buy strangles for cheap exposure to explosions; SELL strangles (carefully, or as an iron condor) to collect double premium from a stock going nowhere.',
+ viz:['payoff',{legs:[{type:'call',side:1,strike:55,qty:1,premium:0.8},{type:'put',side:1,strike:45,qty:1,premium:0.8}],spot:50,range:[36,64],cap:'Long 45/55 strangle: cheaper than the straddle, wider dead zone in the middle.'}]},
+{t:'Iron condor', s:'Sell a put spread below AND a call spread above: income from a range.',
+ d:'The flagship "this stock is going nowhere" trade. Four legs: short strangle in the middle collecting premium, protective wings outside capping both tails. If the stock stays between the short strikes, everything expires and you keep the credit. Deploy in high IV rank with a quiet calendar — and size by the defined max loss, not the credit.',
+ ex:'SBUX at $100: sell the $96 put & $105 call, buy the $92 put & $109 call for a $70 net credit. SBUX anywhere in 96–105 at expiry → +$70. Max loss $180.',
+ viz:['payoff',{legs:[{type:'put',side:-1,strike:96,qty:1,premium:0.9},{type:'put',side:1,strike:92,qty:1,premium:0.35},{type:'call',side:-1,strike:105,qty:1,premium:0.55},{type:'call',side:1,strike:109,qty:1,premium:0.25}],spot:100,range:[86,116],cap:'The condor’s plateau: profit in the middle, capped loss on both tails.'}]},
+{t:'Butterfly', s:'A cheap, precise bet that the stock PINS a specific price.',
+ d:'Buy one option below, sell two at the middle strike, buy one above (all calls or all puts). Costs very little; pays best if the stock lands exactly on the middle strike at expiry. A sniper’s tool: low probability of the full payoff, but spectacular reward-to-risk when you have a strong opinion about WHERE a stock will settle.',
+ viz:['payoff',{legs:[{type:'call',side:1,strike:95,qty:1,premium:6.2},{type:'call',side:-2,strike:100,qty:1,premium:2.9},{type:'call',side:1,strike:105,qty:1,premium:1.1}],spot:100,range:[88,112],cap:'The 95/100/105 butterfly: a tent — max payoff exactly at $100, tiny cost either side.'}]},
+{t:'Calendar spread', s:'Sell a short-dated option, buy a longer-dated one at the same strike.',
+ d:'Different expirations, same strike. The near option melts fast (you sold it — good), the far option melts slowly (you own it — also good). Profits if the stock sits near the strike while the near leg decays away. It’s a bet on time and calm, and secretly on IV rising in the back month. More moving parts than a vertical — a post-basics tool.'},
+{t:'Diagonal spread', s:'A calendar with different strikes: time spread + direction.',
+ d:'Buy a longer-dated option at one strike, sell a shorter-dated one at another. The famous version — "poor man’s covered call" — buys a deep-ITM LEAPS call as a stock substitute and sells monthly calls against it, mimicking a covered call at a fraction of the capital.'},
+{t:'Ratio spread', s:'Unequal legs — e.g. buy 1 call, sell 2 higher calls.',
+ d:'Selling extra options finances the bought one (often making the trade free or a credit)… but that extra short option is UNCOVERED, reintroducing open-ended risk on big moves. Used by professionals with hedges in place; listed here so you recognize it — and treat it with respect.'},
+{t:'Synthetic stock', s:'Options assembled to behave exactly like shares.',
+ d:'Buy a call + sell a put at the same strike & expiry = the payoff of owning 100 shares (a "synthetic long"), built with a fraction of the cash. Elegant, and a window into option theory (put-call parity: calls, puts, and stock are convertible into each other) — but remember the short put carries full downside, just like real shares.'},
+{t:'The wheel', s:'CSP → (assigned?) covered calls → called away → repeat.',
+ d:'An income loop combining the two friendliest strategies: sell cash-secured puts on a stock you want until assigned; then sell covered calls on the shares until they’re called away; repeat forever. Every stage collects premium and lowers cost basis. The golden rule — worth repeating forever — is that the wheel only works on stocks you’d genuinely hold; no premium is fat enough to bail out a broken company.',
+ viz:['wheelviz']},
+{t:'Rolling', s:'Closing an option and reopening it further out in time (or at a new strike).',
+ d:'One combined adjustment: buy back your short option, sell another with more DTE (and often a different strike), usually for an additional credit. Rolling buys time for a trade under pressure or extends a winner — it’s how the "exit by 21 DTE" rule is implemented without abandoning a position. Rule of thumb: only roll for a credit; rolling for a debit is usually denial with extra steps.'},
+{t:'Defined risk', s:'Worst case known and capped before you enter. The professional default.',
+ d:'A position whose maximum loss is a printed number: long options, verticals, condors, butterflies. Defined risk turns disasters into line items and makes honest position sizing possible ("this trade can lose at most $330, which is 2% of my account"). Its opposite — undefined risk — is how one bad night deletes a year of wins.'},
+{t:'Collateral & margin', s:'What you pledge to guarantee your promises.',
+ d:'Short options are promises, and brokers demand security: a cash-secured put locks up the full strike × 100; a credit spread locks its max loss; portfolio margin (pro accounts) computes fancier requirements. In this game’s practice desk, collateral equals the defined max loss — the honest amount. If a trade’s collateral makes you wince, the position is too big.'},
 ]],
 ['Risk & the Professional Mindset', [
- ['Expected value (EV)','The long-run average result of a repeated decision: (win% × avg win) − (loss% × avg loss). The professional\'s only scoreboard — win rate alone is a decoy.'],
- ['Resulting','Judging a decision by its single outcome instead of its process. A good trade can lose; a terrible trade can win once. Poker term, coined by Annie Duke.'],
- ['Law of large numbers','An edge only shows up reliably across MANY repetitions. The reason professionals trade small and often instead of making a few big bets.'],
- ['Position sizing','How much of the account one trade can lose. The professional convention: risk 1–5% per trade. The single biggest lever on survival.'],
- ['Risk of ruin','The probability that drawdowns bury an account so deep it can\'t recover. Driven mostly by position size — formalized by Ralph Vince.'],
- ['Drawdown','A decline from the account\'s peak. Recovery is asymmetric: −10% needs +11%, −50% needs +100%.'],
- ['Probability of profit (POP)','The estimated odds a position makes at least $0.01 by expiration. High POP usually means small reward and larger tail risk — check what you\'re paid per unit of catastrophe.'],
- ['Managing winners','Closing profitable short-premium trades early — around 50% of max profit — because the remaining profit accrues slowly while gamma risk grows. Backed by tastytrade\'s research.'],
- ['21 DTE rule','Exit or roll short options around 21 days to expiration to avoid the endgame, where gamma turns small moves into violent P/L swings.'],
- ['Stop-loss','A pre-committed exit point that caps a losing trade. Moving it mid-trade removes the only bound on how much you can lose.'],
- ['Revenge trading','Oversizing after a loss to "win it back" — the classic emotional account-killer. The plan, not the pain, decides the next trade.'],
- ['Delta-neutral','A book hedged so net delta ≈ 0: direction stops mattering, leaving a pure position on volatility and time. How market makers live.'],
- ['Gamma scalping','Long options + repeated re-hedging: sell shares as the stock rises, buy as it falls. Converts back-and-forth movement into profit when realized vol beats the IV paid.'],
- ['Portfolio Greeks','The summed delta, theta, and vega of ALL positions — the book. Professionals manage the book\'s net exposure, not individual trades.'],
- ['Tail risk','The danger of rare, extreme moves far outside normal daily noise. Small probability, account-ending magnitude.'],
- ['Black swan','Nassim Taleb\'s term for an unpredictable extreme event that\'s obvious only in hindsight — the thing tail hedges exist for.'],
- ['Convexity','A payoff that ACCELERATES as the move gets bigger — fixed, capped cost but exploding gains in extremes. What long options have and short options lack.'],
- ['Barbell strategy','Taleb\'s construction: most capital ultra-safe, a small budgeted slice in convex bets (like far-OTM puts), nothing in the fragile middle.'],
- ['Paper trading','Practicing with simulated money — like this entire game. Scar-tissue-free, which is both its feature and its limitation.'],
+{t:'Expected value (EV)', s:'The long-run average of a bet: (win% × avg win) − (loss% × avg loss).',
+ d:'The only score professionals keep. A trade’s outcome is luck; its expected value is skill. Compute it for everything: a 90% win rate means NOTHING until you know the sizes of the wins and losses. Casinos never win every hand — they win every year, because every game they offer is +EV for the house. Your job is to be the house.',
+ ex:'Win 80% of the time: +$50. Lose 20%: −$300. EV = 0.8(50) − 0.2(300) = −$20 per trade. This "great" strategy loses $2,000 per hundred trades.',
+ viz:['ev']},
+{t:'Resulting', s:'Judging a decision by one outcome instead of its process.',
+ d:'Poker player Annie Duke’s term for the most natural mistake in the world: the trade won, so it was smart; it lost, so it was dumb. Wrong on both counts — good decisions lose sometimes, terrible decisions win sometimes. Over a career, process is everything and any single outcome is noise. Grade yourself on whether you’d make the same decision again with the same information.',
+ ex:'You sell a naked put for $4 risking $7,000 and win. Resulting says "genius." EV math says you just got paid pennies to dodge a steamroller — and one day it won’t miss.'},
+{t:'Law of large numbers', s:'Edges only show up reliably across MANY tries.',
+ d:'Flip a fair coin 10 times and 7 heads is unremarkable; flip 10,000 times and the ratio hugs 50%. Same with trading: a genuine edge can lose for weeks, and randomness can flatter garbage for months. The professional response: many small trades (so the average has room to assert itself) rather than a few huge ones (where one unlucky flip is fatal). Hence the motto: trade small, trade often.'},
+{t:'Win rate', s:'How often a strategy profits — the most seductive, least important stat.',
+ d:'High win rates FEEL wonderful and prove nothing: selling deep OTM options wins constantly, right up until one loss returns years of gains. Low win rates feel awful and can be brilliant: tail hedges lose small almost always and occasionally save the firm. Win rate only means something next to the SIZE of wins and losses — which is EV.'},
+{t:'Reward-to-risk ratio', s:'Average win size vs average loss size.',
+ d:'The other half of the EV equation. A 1:3 reward-to-risk (win $100, lose $300) needs a 75%+ win rate just to break even; a 3:1 needs only 25%. Every strategy is a tradeoff along this curve — premium selling sits at high-win-rate/poor-ratio, tail hedging at the opposite corner. Know where yours sits before judging any losing streak.'},
+{t:'Position sizing', s:'How much one trade can cost you. The #1 survival decision.',
+ d:'The professional convention: risk 1–5% of the account per trade, computed from defined max loss. At 2%, ten straight losses — which WILL eventually happen — costs 18% of the account: painful, recoverable. At 25%, the same streak is oblivion. Sizing has a hidden second job: small positions keep your brain calm enough to follow your own plan. Oversized positions make otherwise smart people do panicked, stupid things.',
+ ex:'$10,000 account, 3% rule → max loss per trade $300 → that $330-max-loss put spread is fine at 1 contract, reckless at 5.'},
+{t:'Kelly criterion', s:'The math of optimal bet size — and why pros bet below it.',
+ d:'Given your edge and odds, the Kelly formula computes the bet size that maximizes long-run growth. Two lessons hide in its curve: betting MORE than Kelly doesn’t just add risk — it mathematically REDUCES growth, all the way to ruin; and because you never know your real edge precisely, professionals bet a fraction ("half-Kelly") of the estimate. Aggression past the peak is pure downside.',
+ viz:['kelly']},
+{t:'Risk of ruin', s:'The odds your account hits a point of no return.',
+ d:'Formalized by Ralph Vince: from win rate, payoff ratio, and bet size, you can compute the probability of eventually digging a hole too deep to climb out of. The punchline of the math: bet size dominates. The same strategy can have near-zero ruin risk at 2% sizing and near-certain ruin at 30%. Positive expected value does NOT protect you — ruin eats edges for breakfast.',
+ viz:['ruin']},
+{t:'Drawdown', s:'The fall from your account’s peak — and the asymmetric climb back.',
+ d:'Measured peak-to-trough: grow $10k to $14k, dip to $11.2k — that’s a 20% drawdown. The cruelty is asymmetric: −10% needs +11% back, −33% needs +50%, −50% needs +100%. Every percent deeper roughly doubles the difficulty of recovery. Professionals obsess over limiting drawdowns first and chase returns second — because the math says survival IS the strategy.',
+ viz:['drawdown']},
+{t:'Stop-loss', s:'A pre-committed exit that caps a losing trade.',
+ d:'Decided BEFORE entry, while you’re still calm: "if this loses $X or breaks $Y, I’m out, no debate." Two caveats every professional knows: stops can’t protect against overnight gaps (the price teleports past them — use defined-risk structures for that), and a stop moved mid-trade to "give it room" is no longer a stop; it’s the removal of the only bound on your loss.'},
+{t:'Managing winners (the 50% rule)', s:'Close profitable short-premium trades at ~half their max profit.',
+ d:'Premium-selling P/L arrives lopsidedly: the first 50% of the credit comes fast, the last 50% dribbles in while gamma risk grows huge. Backtests (tastytrade published mountains of them) consistently show that taking profit around 50% of max and redeploying beats holding to expiry — higher win rates, smoother equity, far fewer catastrophes. Leaving the party early isn’t timid; it’s the mechanically optimal exit.',
+ ex:'Collect a $100 credit → place a standing order to buy it back at $50. Done. No feelings involved.',
+ viz:['manage']},
+{t:'21 DTE rule', s:'Exit or roll short options ~3 weeks before expiry.',
+ d:'The companion to the 50% rule, targeting the same enemy: the endgame. Inside ~21 days, gamma turns every wobble violent while the remaining premium you’re "waiting for" is small. The rule converts a discretionary agonize-daily decision into a mechanical one: at 21 DTE you’re out — taking whatever profit or loss exists — or rolled to the next cycle for a credit.'},
+{t:'Probability of profit (POP)', s:'The odds a trade makes at least $0.01 — useful, and seductive.',
+ d:'Estimated from option deltas: sell a 0.30-delta put and POP ≈ 70%. Platforms display it prominently because big numbers feel great. The professional discount: POP says nothing about SIZE of outcomes. A 95% POP trade that risks $700 to make $10 is a terrible business. Always read POP together with max loss — what are you paid per unit of catastrophe?'},
+{t:'Delta-neutral', s:'A book hedged to net delta ≈ 0: direction stops mattering.',
+ d:'Sum every position’s delta and offset the total with stock. Now the market can wiggle and your P/L barely responds — what remains is exposure to volatility (vega) and time (theta), which is the purified bet professionals actually want. This is the resting state of every market maker’s book, re-balanced continuously all day.'},
+{t:'Gamma scalping', s:'Long options + re-hedging = harvesting movement itself.',
+ d:'Own options (positive gamma), hedge delta-neutral, then re-hedge after every move: the stock rises, you sell some shares; it falls, you buy them back. Buy-low-sell-high happens mechanically, over and over. The harvest profits when realized volatility exceeds the IV you paid — gamma scalping is literally the machine that converts "the market is choppier than priced" into money.'},
+{t:'Portfolio Greeks (the book)', s:'The summed Greeks of everything you hold.',
+ d:'Professionals don’t ask "how’s this trade doing?" — they ask "what’s my BOOK’s net delta, theta, vega?" Ten clever positions might accidentally sum to one huge directional bet; the book view catches it. Your homework as you advance: after every new trade, glance at the totals. You are always running exactly one portfolio, whether you look at it or not.'},
+{t:'Tail risk', s:'Rare, extreme events — small probability, account-ending size.',
+ d:'Markets are not the tidy bell curve of textbooks: crashes of "impossible" size arrive every decade or so. Tail risk is everything living in that far-left region. Strategies that sell insurance collect steadily FROM tail risk — and owe everything when a tail arrives. The professional posture: harvest premium if you like, but never be the one holding unlimited exposure when the tail shows up.'},
+{t:'Black swan', s:'Taleb’s term: the unpredictable extreme that’s "obvious" only afterwards.',
+ d:'Nassim Taleb’s definition has three parts: an event that’s an outlier, carries massive impact, and gets rationalized after the fact ("the signs were everywhere"). The practical conclusion isn’t to predict swans — they’re unpredictable by definition — but to build positions that survive them, or better, benefit from them (see <b>Convexity</b> and <b>Barbell</b>).'},
+{t:'Convexity', s:'Payoffs that ACCELERATE as moves get extreme. Long options have it.',
+ d:'A convex position’s gains curve upward: twice the move pays far more than twice the profit, while the cost stays fixed and capped. Long options are convex; short options are the opposite (concave — limited gain, accelerating loss). Convexity is why a tiny put position can offset a huge portfolio loss in a crash, and why Taleb tells traders to keep their downside capped and their upside open.',
+ viz:['convex']},
+{t:'Barbell strategy', s:'Most capital ultra-safe + a small slice in convex bets. Nothing in the middle.',
+ d:'Taleb’s construction: ~85–90% of capital in things that cannot blow up, ~10–15% in things that can explode UPWARD (far-OTM options, asymmetric bets), and deliberately nothing in the "moderately risky" middle where hidden fragility lives. Applied to option income: sell your premium, but spend a budgeted share of it on far-OTM protection. It drags returns in calm years and owns the crisis years — which is the whole point.'},
+{t:'Black Monday (October 19, 1987)', s:'The −23% day that permanently rewired option prices.',
+ d:'The largest one-day US stock crash in history — down 23% in a single session, an event standard models called essentially impossible. Before 1987, IV was roughly flat across strikes; ever since, downside puts have carried a permanent crash premium (see <b>Skew</b>). Every option chain you will ever read still carries the scar of that Monday — the market’s institutional memory that the "impossible" happens.'},
+{t:'Revenge trading & tilt', s:'Trading to un-feel a loss. The classic account-killer.',
+ d:'Poker calls it tilt: after a painful loss, the urge to win it back RIGHT NOW — bigger size, looser standards, borrowed conviction. It’s exactly backwards: losses raise emotion and lower judgment, so post-loss trades tend to be the worst-chosen AND the biggest. The professional protocols are boring and effective: fixed sizing rules, a written plan, and full permission to walk away from the desk. The market opens again tomorrow.'},
 ]],
 ];
 
+// ---- glossary drawer -------------------------------------------
 let glossEl = null, glossBackEl = null;
 function buildGloss(){
   if(glossEl) return;
@@ -2978,13 +3461,28 @@ function buildGloss(){
   const body = h('div',{cls:'body'});
   const none = h('div',{cls:'none'},'No matching terms.');
   none.style.display='none';
-  const inp = h('input',{type:'search',placeholder:'Search '+GLOSSARY.reduce((a,c)=>a+c[1].length,0)+' terms…'});
+  const total = GLOSSARY.reduce((a,c)=>a+c[1].length,0);
+  const inp = h('input',{type:'search',placeholder:'Search '+total+' terms…'});
   const groups = [];
   for(const [cat, entries] of GLOSSARY){
     const catEl = h('div',{cls:'cat'},cat);
-    const els = entries.map(([t,d])=>{
-      const e = h('div',{cls:'entry'},h('div',{cls:'term'},t),h('div',{cls:'def'},d));
-      e.dataset.q = (t+' '+d).toLowerCase();
+    const els = entries.map(en=>{
+      const more = h('div',{cls:'more'});
+      const head = h('div',{cls:'ehead'},
+        h('div',{style:{flex:1}}, h('div',{cls:'term'},en.t), h('div',{cls:'def'},en.s)),
+        h('span',{cls:'chev'},'▾'));
+      const e = h('div',{cls:'entry'}, head, more);
+      e.dataset.q = (en.t+' '+en.s+' '+en.d+' '+(en.ex||'')).toLowerCase();
+      let built = false;
+      head.addEventListener('click',()=>{
+        const open = e.classList.toggle('open');
+        if(open && !built){
+          built = true;
+          more.append(h('div',{cls:'ldef',html:en.d}));
+          if(en.viz){ const v = glossViz(en.viz); if(v) more.append(v); }
+          if(en.ex) more.append(h('div',{cls:'exbox',html:'<b>Example ·</b> '+en.ex}));
+        }
+      });
       return e;
     });
     groups.push({catEl, els});
@@ -3009,6 +3507,7 @@ function buildGloss(){
   glossEl = h('div',{cls:'gloss',role:'dialog','aria-label':'Glossary'},
     h('header',{},h('h2',{},'Glossary'),h('button',{cls:'x',onclick:closeGloss,'aria-label':'Close'},'✕')),
     h('div',{cls:'search'},inp),
+    h('div',{cls:'ghint'},'Tap any term for the full explanation, an example, and a diagram.'),
     body);
   document.addEventListener('keydown',ev=>{ if(ev.key==='Escape') closeGloss(); });
 }
