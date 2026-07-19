@@ -414,7 +414,7 @@ const SAVE_KEY = 'optionsQuest_v2';
 const RANKS = [
   [0,'Intern'],[150,'Junior Analyst'],[400,'Analyst'],[700,'Senior Analyst'],
   [1100,'Associate Trader'],[1600,'Trader'],[2200,'Senior Trader'],[3000,'Portfolio Manager'],
-  [4000,'Head of Desk'],[5200,'Partner'],
+  [4000,'Head of Desk'],[5200,'Partner'],[6500,'Managing Partner'],[8000,'Market Legend'],
 ];
 function freshSave(){
   return {
@@ -773,6 +773,8 @@ SCREENS.map = function(scr){
     {n:4, name:'Volatility', sub:'The vol premium, IV rank, straddles & iron condors'},
     {n:5, name:'The Edge', sub:'Expected value, position sizing, trade management & discipline'},
     {n:6, name:'Mastery', sub:'Portfolio Greeks, skew, tail risk & the wheel'},
+    {n:7, name:'The Specialist', sub:'Expected move, calendars, butterflies, rolling & expiration mechanics'},
+    {n:8, name:'Legend', sub:'Hedge ratios, gamma scalping, regimes & the Legend Gauntlet'},
   ];
   let prevDone = true;
   for(const ch of chapters){
@@ -990,21 +992,27 @@ function tradeRunner(box, cfg, ctx, done){
   // ---------- phase 2: ticket ----------
   function renderTicket(choice, built){
     const cost = posEntryCost(built);
-    const stats = posStats(built, m.S);
+    const mixed = new Set(built.filter(l=>l.type!=='stock').map(l=>l.dte0)).size > 1;
+    const stats = mixed? {maxGain:null,maxLoss:null} : posStats(built, m.S);
     const back = h('div',{cls:'sheet-back',onclick:closeSheet});
     const sheet = h('div',{cls:'sheet'});
     function closeSheet(){ back.remove(); sheet.remove(); }
     sheet.append(h('h3',{},'Order ticket'),
       h('div',{cls:'dim',style:{fontSize:'13px',marginBottom:'8px'}},cfg.ticker+' at $'+m.S.toFixed(2)+' · options control 100 shares each'));
-    for(const l of built) sheet.append(h('div',{cls:'legrow'},h('span',{},legLabel(l)),h('span',{cls:'num'},l.type==='stock'?fmt$(l.premium)+'/sh':fmt$(l.premium)+' ×100')));
-    const d2 = payoffDiagram({height:200});
-    sheet.append(d2.el);
-    d2.update({legs:built, spot:m.S, iv:m.iv, dte:cfg.dte});
-    const beL = bes(built, m.S);
+    for(const l of built) sheet.append(h('div',{cls:'legrow'},h('span',{},legLabel(l)+(mixed&&l.type!=='stock'?' · '+l.dte0+'d':'')),h('span',{cls:'num'},l.type==='stock'?fmt$(l.premium)+'/sh':fmt$(l.premium)+' ×100')));
+    if(!mixed){
+      const d2 = payoffDiagram({height:200});
+      sheet.append(d2.el);
+      d2.update({legs:built, spot:m.S, iv:m.iv, dte:cfg.dte});
+    } else {
+      sheet.append(h('div',{cls:'card sub',style:{padding:'10px 14px',fontSize:'12.5px',lineHeight:1.55,color:'var(--dim)'}},
+        'The legs expire on different dates, so there is no single "at expiry" picture. P/L depends on how much faster the short (near) leg decays than the long (far) leg.'));
+    }
+    const beL = mixed? [] : bes(built, m.S);
     sheet.append(h('div',{cls:'card sub',style:{padding:'8px 14px'}},
       statRow(cost>=0?'You pay':'You receive', fmt$(Math.abs(cost)), cost>=0?'red':'green'),
-      statRow('Max gain', stats.maxGain===null?'Unlimited':fmt$(stats.maxGain),'green'),
-      statRow('Max loss', stats.maxLoss===null?'Uncapped ⚠':(fmt$(Math.abs(stats.maxLoss))+(stats.bigDownRisk?' ⚠':'')),'red'),
+      statRow('Max gain', mixed?'— (time spread)':(stats.maxGain===null?'Unlimited':fmt$(stats.maxGain)),'green'),
+      statRow('Max loss', mixed?(cost>=0?fmt$(cost)+' (net debit)':'—'):(stats.maxLoss===null?'Uncapped ⚠':(fmt$(Math.abs(stats.maxLoss))+(stats.bigDownRisk?' ⚠':''))),'red'),
       statRow('Break-even'+(beL.length>1?'s':''), beL.length?beL.map(b=>'$'+b.toFixed(2)).join(' & '):'—','gold')));
     sheet.append(h('button',{cls:'btn primary',onclick:()=>{ closeSheet(); legs=built; ctx.choice=choice; renderLive(); }},'CONFIRM TRADE'));
     sheet.append(h('div',{style:{height:'8px'}}));
@@ -1910,6 +1918,236 @@ TOYS.wheel = (box, step, ctx, next)=>{
 };
 
 /* ============================================================
+   7a-3. SPECIALIST TOYS (chapters 7-8)
+   ============================================================ */
+// 7.1 — expected move calculator
+TOYS.expmove = (box, step, ctx, next)=>{
+  toyTag(box,'WHAT MOVE IS PRICED IN?');
+  const S=50;
+  let iv=55, dte=7;
+  const btn = gateBtn(next);
+  const read = h('div',{cls:'card sub',style:{padding:'8px 14px'}});
+  function upd(){
+    const T=dte/252;
+    const straddle = round2(bsPrice('call',S,S,T,iv/100)+bsPrice('put',S,S,T,iv/100));
+    const em = straddle/S*100*0.85+straddle/S*100*0.15; // ≈ straddle/spot
+    const emPct = round2(straddle/S*100);
+    read.innerHTML='';
+    read.append(statRow('PLTR $50 straddle price', fmt$(straddle),'gold'),
+      statRow('Expected move ≈ straddle ÷ stock price', '±'+emPct+'%  (±$'+round2(S*emPct/100).toFixed(2)+')','green'),
+      statRow('The market is saying','"we think PLTR lands between $'+(S*(1-emPct/100)).toFixed(1)+' and $'+(S*(1+emPct/100)).toFixed(1)+'"'),
+      statRow('Sell premium OUTSIDE that range','the pro earnings play (with wings!)'),
+      statRow('Buy premium','only if you believe the REAL move beats ±'+emPct+'%'));
+    btn.disabled=false;
+  }
+  box.append(h('div',{cls:'card'},
+    h('p',{style:{margin:'0 0 8px',fontSize:'14px',lineHeight:1.6}},'The at-the-money straddle price IS the market\'s forecast: roughly, <b>expected move ≈ straddle price ÷ stock price</b>. No crystal ball required — it\'s printed on the chain.'),
+    h('div',{cls:'tag'},'IMPLIED VOLATILITY: ',h('span',{cls:'gold num',id:'emIV'},'55%')),
+    slider(20,120,55,1,v=>{iv=v;document.getElementById('emIV').textContent=v+'%';upd();}),
+    h('div',{cls:'tag'},'DAYS TO EXPIRY: ',h('span',{cls:'gold num',id:'emD'},'7')),
+    slider(1,45,7,1,v=>{dte=v;document.getElementById('emD').textContent=v;upd();})),
+    read, btn);
+  upd();
+};
+
+// 7.2 — volatility term structure
+TOYS.termstruct = (box, step, ctx, next)=>{
+  toyTag(box,'THE TERM STRUCTURE — IV BY EXPIRY');
+  const btn = gateBtn(next);
+  const W=460,H=170,padL=8;
+  const svg = hs('svg',{viewBox:'0 0 460 170',style:'width:100%;height:auto;display:block;'});
+  const wrap = h('div',{cls:'card sub',style:{padding:'8px 10px'}},svg);
+  let mode='normal', seen={normal:true,event:false};
+  function draw(){
+    svg.innerHTML='';
+    const dtes=[7,14,21,30,45,60,90];
+    const ivs = dtes.map(d=> mode==='normal'
+      ? 22 + d*0.05                                  // gentle upward slope
+      : (d<=14? 62 - (d-7)*2.2 : 30 + d*0.04));      // event: front month spiked
+    const X=i=>40+i/(dtes.length-1)*390, Y=v=>150-(v-15)/55*120;
+    let dpath='';
+    ivs.forEach((v,i)=>{ dpath+=(i?'L':'M')+X(i)+' '+Y(v)+' ';
+      svg.append(hs('circle',{cx:X(i),cy:Y(v),r:3.5,fill:mode==='normal'?'#60a5fa':'#e5484d'}));
+      svg.append(hs('text',{x:X(i),y:164,'text-anchor':'middle',fill:'#5b6374','font-size':10},dtes[i]+'d')); });
+    svg.append(hs('path',{d:dpath,fill:'none',stroke:mode==='normal'?'#60a5fa':'#e5484d','stroke-width':2.2}));
+    svg.append(hs('text',{x:16,y:20,fill:'#e6e9f0','font-size':11.5,'font-weight':700},
+      mode==='normal'?'Normal market: far expiries slightly pricier (more time = more uncertainty)':'Earnings in 7 days: the FRONT month spikes — drama is date-stamped'));
+    if(seen.normal&&seen.event) btn.disabled=false;
+  }
+  const r=h('div',{cls:'btnrow'},
+    h('button',{cls:'btn small primary',onclick:function(){mode='normal';seen.normal=true;this.className='btn small primary';eBtn.className='btn small ghost';draw();}},'Quiet month'),
+    h('button',{cls:'btn small ghost',onclick:function(){mode='event';seen.event=true;this.className='btn small primary';r.firstChild.className='btn small ghost';draw();}},'Earnings in 7 days'));
+  const eBtn=r.children[1];
+  box.append(r, wrap, h('div',{cls:'card sub',style:{padding:'10px 14px',fontSize:'12.5px',lineHeight:1.6,color:'var(--dim)'}},
+    'Calendar spreads live on this curve: <b style="color:var(--accent2)">sell the expensive, fast-decaying front month; own the cheaper, slow-decaying back month</b>. When the front is spiked (right chart), the trade gets even juicier — sell the drama, keep the time.'), btn);
+  draw();
+};
+
+// 7.3 — butterfly builder
+TOYS.flybuilder = (box, step, ctx, next)=>{
+  toyTag(box,'THE BUTTERFLY — A BET ON A BULLSEYE');
+  const S0=80, iv=0.25, dte=10;
+  const btn = gateBtn(next);
+  const dia = payoffDiagram({});
+  const read = h('div',{cls:'card sub',style:{padding:'8px 14px'}});
+  function upd(mid){
+    const T=dte/252, w=5;
+    const legs=[
+      {type:'call',side:1,strike:mid-w,qty:1,premium:quote('call',S0,mid-w,T,iv).ask},
+      {type:'call',side:-2,strike:mid,qty:1,premium:quote('call',S0,mid,T,iv).bid},
+      {type:'call',side:1,strike:mid+w,qty:1,premium:quote('call',S0,mid+w,T,iv).ask}];
+    dia.update({legs, spot:S0, iv, dte:0, range:[mid-14,mid+14]});
+    const cost = round2(posEntryCost(legs));
+    read.innerHTML='';
+    read.append(statRow('Buy $'+(mid-w)+'C · sell 2× $'+mid+'C · buy $'+(mid+w)+'C',''),
+      statRow('Cost (= max loss)', fmt$(cost),'red'),
+      statRow('Max payoff — stock lands EXACTLY at $'+mid, fmt$(w*100-cost),'green'),
+      statRow('Reward-to-risk', '≈ '+round2((w*100-cost)/Math.max(cost,1)).toFixed(1)+' : 1','gold'),
+      statRow('The catch','needs the stock to sit still at the bullseye — low odds, big payout'));
+    btn.disabled=false;
+  }
+  box.append(dia.el, h('div',{cls:'card',style:{padding:'10px 16px'}},
+    h('div',{cls:'tag'},'CENTER STRIKE (where you predict DIS pins)'),
+    slider(72,88,80,1,upd),
+    h('div',{cls:'dim',style:{fontSize:'12.5px'}},'Slide the tent. Notice the cost barely changes but the tent follows your prediction — a cheap, surgical instrument.')), read, btn);
+  upd(80);
+};
+
+// 7.4 — the roll decision
+TOYS.rollsim = (box, step, ctx, next)=>{
+  toyTag(box,'TESTED. NOW WHAT? — THE ROLL');
+  const btn = gateBtn(next);
+  let chosen = {a:false,b:false};
+  const read = h('div',{cls:'card sub',style:{padding:'8px 14px'}});
+  function show(which){
+    chosen[which]=true;
+    read.innerHTML='';
+    if(which==='a'){
+      read.append(statRow('Action','Close now','red'),
+        statRow('Realized loss','−$177 — final'),
+        statRow('Remaining risk','none'),
+        statRow('When it\'s right','your original thesis is BROKEN — pay the bill, move on'));
+    } else {
+      read.append(statRow('Action','Roll: close this spread, sell next month\'s $94/$90 spread','green'),
+        statRow('Extra credit collected','+$62 now'),
+        statRow('New effect','more time for the thesis + lower strikes + smaller net loss if wrong again'),
+        statRow('The iron rule','only roll for a CREDIT, and only if you STILL believe the thesis'),
+        statRow('The trap','rolling a broken thesis is just denial on an installment plan','red'));
+    }
+    if(chosen.a&&chosen.b) btn.disabled=false;
+  }
+  box.append(h('div',{cls:'card'},
+    h('p',{style:{margin:'0 0 8px',fontSize:'14px',lineHeight:1.6}},'Your short $98/$94 put spread is <b>tested</b> — the stock sliced through $98 and the position shows −$177. Every premium seller faces this moment monthly. Compare the two professional exits (hoping is not on the menu):'),
+    h('div',{cls:'btnrow'},
+      h('button',{cls:'btn ghost',onclick:()=>show('a')},'Close & take the loss'),
+      h('button',{cls:'btn ghost',onclick:()=>show('b')},'Roll it out & down'))),
+    read, btn);
+};
+
+// 8.1 — hedge ratio
+TOYS.betahedge = (box, step, ctx, next)=>{
+  toyTag(box,'HOW MUCH INSURANCE? — HEDGE RATIOS');
+  const btn = gateBtn(next);
+  const read = h('div',{cls:'card sub',style:{padding:'8px 14px'}});
+  function upd(n){
+    const shares=200, crash=-0.12, S=100, putK=95, putCost=1.05;
+    const shareLoss = shares*S*crash;                       // −$2,400
+    const putPayoff = n*100*Math.max(S*(1+crash)-0+ (putK-S*(1+crash)),0); // intrinsic at 88: 7
+    const payoff = n*100*Math.max(putK - S*(1+crash), 0);
+    const cost = n*100*putCost;
+    const net = round2(shareLoss + payoff - cost);
+    read.innerHTML='';
+    read.append(statRow('Your book','200 shares (≈ $20,000 notional)'),
+      statRow('Puts bought', n+' × $95 puts @ '+fmt$(putCost),'gold'),
+      statRow('Insurance bill', fmt$(cost),'red'),
+      statRow('If the market drops 12%…',''),
+      statRow('· share loss', fmt$(shareLoss),'red'),
+      statRow('· puts pay', fmt$(payoff),'green'),
+      statRow('NET', fmtPL(net), plClass(net)),
+      statRow('Coverage', Math.round(n*100/shares*100)+'% of your shares'+(n*100>shares?' — over-hedged (you profit from crashes!)':'')));
+    btn.disabled=false;
+  }
+  box.append(h('div',{cls:'card'},
+    h('p',{style:{margin:'0 0 8px',fontSize:'14px',lineHeight:1.6}},'Hedging is not all-or-nothing — it\'s a dial. Each put covers 100 shares. (Pros hedging a MIXED portfolio first convert everything into "market-equivalent" shares using beta — a 2.0-beta stock counts double — then buy index puts against the total.)'),
+    h('div',{cls:'tag'},'NUMBER OF PROTECTIVE PUTS (0–3)'),
+    slider(0,3,0,1,upd)), read, btn);
+  upd(0);
+};
+
+// 8.2 — gamma scalping lab
+TOYS.scalplab = (box, step, ctx, next)=>{
+  toyTag(box,'THE MARKET MAKER\'S HARVEST — GAMMA SCALPING');
+  const S0=50, iv=0.45, dte0=12;
+  const path=[3.5,-3.6,3.4,-3.5,3.3,-3.4];
+  const btn = gateBtn(next);
+  let day=0, S=S0, hedge=0, hedgePL=0;
+  const strad0 = bsPrice('call',S0,50,dte0/252,iv)+bsPrice('put',S0,50,dte0/252,iv);
+  const read = h('div',{cls:'card sub',style:{padding:'8px 14px'}});
+  const feed = h('div',{cls:'card sub',style:{padding:'8px 14px',fontSize:'12px',color:'var(--dim)',lineHeight:1.6}});
+  const adv = h('button',{cls:'btn primary'},'Advance 1 day (auto re-hedge)');
+  function stradVal(px,d){ return bsPrice('call',px,50,Math.max(dte0-d,0)/252,iv)+bsPrice('put',px,50,Math.max(dte0-d,0)/252,iv); }
+  function upd(){
+    const sv = stradVal(S,day);
+    const lazy = round2((sv-strad0)*100);
+    const scalped = round2(lazy + hedgePL);
+    read.innerHTML='';
+    read.append(statRow('Day '+day+' — PLTR', fmt$(S),'gold'),
+      statRow('Straddle value', fmt$(sv)+'  ('+fmtPL(lazy)+')', plClass(lazy)),
+      statRow('Hedge P/L (from re-hedging)', fmtPL(round2(hedgePL)), plClass(hedgePL)),
+      statRow('LAZY holder total', fmtPL(lazy), plClass(lazy)),
+      statRow('SCALPER total', fmtPL(scalped), plClass(scalped)));
+  }
+  adv.addEventListener('click',()=>{
+    if(day>=path.length){ return; }
+    const Sprev = S;
+    S = round2(S*(1+path[day]/100));
+    day++;
+    hedgePL += hedge*(S-Sprev);                                    // yesterday's hedge works today
+    const delta = bsDelta('call',S,50,Math.max(dte0-day,1)/252,iv) + bsDelta('put',S,50,Math.max(dte0-day,1)/252,iv);
+    const newHedge = -Math.round(delta*100);
+    feed.prepend(h('div',{},'Day '+day+': stock '+(path[day-1]>0?'+':'')+path[day-1]+'% → '+fmt$(S)+'. Re-hedged: now '+(newHedge>=0?'long ':'short ')+Math.abs(newHedge)+' shares.'));
+    hedge = newHedge;
+    upd();
+    if(day>=path.length){
+      adv.disabled=true; btn.disabled=false;
+      feed.prepend(h('div',{style:{color:'var(--green)',fontWeight:600}},'Six violent days, stock back near $50. The lazy straddle bled theta; the scalper converted every swing into hedge profits.'));
+    }
+  });
+  box.append(h('div',{cls:'card'},
+    h('p',{style:{margin:0,fontSize:'14px',lineHeight:1.6}},'You own the $50 straddle (delta ≈ 0). Each day the stock lurches ±3.5% — way more than the 45% IV you paid for. After each move we re-hedge to neutral: <b>sell shares after rallies, buy them back after dips</b>. Watch the two P/Ls diverge.')),
+    read, adv, feed, btn);
+  upd();
+};
+
+// 8.3 — regime matrix
+TOYS.regimes = (box, step, ctx, next)=>{
+  toyTag(box,'THE PLAYBOOK MATRIX');
+  const btn = gateBtn(next);
+  const seen = new Set();
+  const plays = {
+    hiRange:{t:'High IV + range-bound', d:'Premium seller\'s paradise: iron condors, credit spreads, covered calls. Rich premium, no trend to break the range. Manage at 50%, out by 21 DTE.', c:'#2fbf71'},
+    hiTrend:{t:'High IV + trending', d:'Dangerous for naked selling — the trend keeps testing strikes. Use defined-risk directional spreads WITH the trend, or stand aside until IV rank and the trend disagree less.', c:'#d4a72c'},
+    loRange:{t:'Low IV + range-bound', d:'The dead zone: premium too cheap to sell, no move to buy. Professionals mostly wait here — patience is a position. Calendars can work (cheap back-month vol).', c:'#8a93a6'},
+    loTrend:{t:'Low IV + trending (or catalyst ahead)', d:'Buyer\'s market: long calls/puts, debit spreads, straddles into real catalysts. You\'re buying underpriced movement — the rare regime where paying theta is smart.', c:'#60a5fa'},
+  };
+  const read = h('div',{cls:'card sub',style:{padding:'10px 14px',minHeight:'86px'}});
+  const grid = h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
+  for(const key of ['hiRange','hiTrend','loRange','loTrend']){
+    const p=plays[key];
+    grid.append(h('button',{cls:'btn ghost',style:{fontSize:'12.5px',padding:'14px 8px'},onclick:()=>{
+      seen.add(key);
+      read.innerHTML='';
+      read.append(h('div',{style:{fontWeight:700,color:p.c,marginBottom:'4px'}},p.t),
+        h('div',{style:{fontSize:'12.5px',lineHeight:1.6,color:'var(--dim)'}},p.d));
+      if(seen.size===4) btn.disabled=false;
+    }},p.t));
+  }
+  box.append(h('div',{cls:'card'},
+    h('p',{style:{margin:'0 0 10px',fontSize:'14px',lineHeight:1.6}},'Legends don\'t have ONE strategy — they have a playbook indexed by <b>regime</b>: is volatility rich or cheap (IV rank), and is the market trending or stuck? Tap all four quadrants:'),
+    grid), read, btn);
+};
+
+/* ============================================================
    7b. CAMPAIGN CONTENT — the LEVELS array
    ============================================================ */
 const LEVELS = [
@@ -2599,7 +2837,276 @@ const LEVELS = [
     "· Take the 50%, leave by 21 days — <b>manage winners mechanically</b><br>"+
     "· The market pays a permanent <b>crash premium</b> (skew) — harvest it with defined risk<br>"+
     "· And never, ever stand naked in front of the steamroller — <b>protect the tails</b><br><br>"+
-    "The practice desk is open, Partner. Trade small, trade often, and survive first. — Vega";
+    "You've earned the title Partner. But partners aren't legends yet — the specialist floor is now open: <b>Chapter 7</b> teaches the instruments the pros reach for when verticals aren't enough, and <b>Chapter 8</b> is the Legend exam. Trade small, trade often, survive first. — Vega";
+  }},
+]},
+
+// ================= CHAPTER 7 — THE SPECIALIST =================
+{id:'7-1', ch:7, title:'The Expected Move', par:20, steps:[
+  {t:'say', pose:'think', text:"Welcome to the specialist floor. First tool: reading the market's own forecast.<br><br>Before every event, the option chain quietly publishes a number: the <span class='hl'>expected move</span> — roughly, <b>the at-the-money straddle price ÷ the stock price</b>. That's the size of move the market has already paid for. Your edge is never \"a move is coming\" — it's \"the REAL move will be bigger (or smaller) than THIS number.\""},
+  {t:'toy', toy:'expmove'},
+  {t:'quiz', q:[
+    {q:'PLTR trades at $50 and the $50 straddle costs $3.50. The expected move is about…', a:['±3.5%','±7% (3.50 ÷ 50)','±35%'], c:1, why:'Straddle ÷ stock price ≈ expected move. The market is pricing a landing zone of roughly $46.50–$53.50.'},
+    {q:'Earnings gap lands at +4% when the expected move was ±7%. Who profited?', a:['Straddle buyers — the stock moved!','Premium sellers positioned OUTSIDE the expected move','Nobody'], c:1, why:'The move was real but SMALLER than priced. Sellers beyond the expected move kept their credit; buyers paid for ±7% and got 4%.'},
+    {q:'The professional earnings play is usually…', a:['Buy calls the night before','Sell premium beyond the expected move — with defined-risk wings','Max out margin'], c:1, why:'You\'re selling the (usually overpriced) drama while wings cap the occasional monster gap. It\'s the expected-move version of the vol premium.'},
+  ]},
+  {t:'say', pose:'shock', text:"PLTR reports tomorrow. The chain says: expected move <b>±7%</b> ($46.50–$53.50). History says PLTR's average earnings gap is about 5%. The math is whispering…"},
+  {t:'trade', cfg:{
+    ticker:'PLTR', S0:50, iv:0.55, dte:7, path:[4,-0.3], ivPath:[0.35,0.35], flags:{1:'▼'}, showGreeks:true,
+    brief:"Expected move ±7%. Average actual move ~5%. Position around the NUMBER, not the story.",
+    choices:[
+      {label:'Sell the 46/43 put spread + 54/57 call spread (condor beyond the EM)', sub:'Keep the credit if PLTR lands inside ±8%.', legs:[{type:'put',side:-1,strike:46,qty:1},{type:'put',side:1,strike:43,qty:1},{type:'call',side:-1,strike:54,qty:1},{type:'call',side:1,strike:57,qty:1}]},
+      {label:'Buy the $50 straddle', sub:'Pay for ±7% and hope for more.', legs:[{type:'call',side:1,strike:50,qty:1},{type:'put',side:1,strike:50,qty:1}]},
+      {label:'Stay in cash', sub:'No number, no trade.', legs:[]},
+    ],
+  }},
+  {t:'say', pose:'cool', text:ctx=>"PLTR gapped +4% — real move, smaller than priced, exactly the base case. The condor beyond the expected move collected; the straddle paid ±7% prices for a 4% event and got crushed on top.<br><br>Net: <b class='"+(ctx.last.pl>=0?'good':'bad')+"'>"+fmtPL(ctx.last.pl)+"</b>. You now read earnings like a bookmaker, not a fan: the line is published — trade against the line."},
+]},
+
+{id:'7-2', ch:7, title:'Calendars & Term Structure', par:15, steps:[
+  {t:'say', pose:'think', text:"Until now every trade lived at ONE expiration. Specialists trade the <span class='hl'>term structure</span> — how IV differs across expiries — with <span class='hl'>calendar spreads</span>: sell the near expiry, buy the far one, same strike.<br><br>The engine underneath: near options melt fast (their theta is fierce), far options melt slowly. You're short the fast melt and long the slow one."},
+  {t:'toy', toy:'termstruct'},
+  {t:'quiz', q:[
+    {q:'A calendar spread profits mostly from…', a:['A huge directional move','The near leg decaying faster than the far leg while the stock sits near the strike','Dividends'], c:1, why:'You\'re harvesting the DIFFERENCE in decay rates. Big moves actually hurt — they carry the stock away from your strike.'},
+    {q:'When is a calendar extra attractive?', a:['When front-month IV is spiked above back-month (event pricing)','When IV is identical everywhere','During a crash'], c:0, why:'A spiked front month means you\'re selling expensive, fast-dying premium and buying cheap, slow-dying premium. Both legs mispriced in your favor.'},
+    {q:'Maximum loss on a LONG calendar (bought for a debit)?', a:['Unlimited','The debit paid — the far leg is always worth at least as much as the near one','The strike price'], c:1, why:'Defined risk by construction. The worst case is the spread collapsing toward zero — you can never lose more than you paid.'},
+  ]},
+  {t:'say', pose:'happy', text:"SBUX: dead quiet fortnight ahead, and weekly options are trading rich versus the monthlies. Sell the week, own the month."},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:100, iv:0.22, dte:7, path:[0.1,-0.2,0.1,0.0,0.1],
+    brief:"Nothing on the calendar. Front-week ATM premium is fat relative to the 30-day. Which structure milks that?",
+    choices:[
+      {label:'Calendar: sell the 7-day $100 call, buy the 30-day $100 call', sub:'Short the fast melt, long the slow one.', legs:[{type:'call',side:-1,strike:100,qty:1,dte:7},{type:'call',side:1,strike:100,qty:1,dte:30}]},
+      {label:'Just buy the 7-day $100 call', sub:'Own the fast-melting one. Alone.', legs:[{type:'call',side:1,strike:100,qty:1,dte:7}]},
+      {label:'Stay in cash', sub:'Pass.', legs:[]},
+    ],
+  }},
+  {t:'say', pose:'cool', text:ctx=>"Five flat days: the 7-day leg you sold evaporated while your 30-day leg barely noticed — the decay differential landed in your pocket: <b class='"+(ctx.last.pl>=0?'good':'bad')+"'>"+fmtPL(ctx.last.pl)+"</b>. (The naked weekly call just… melted.)<br><br>You're now trading in TWO dimensions: strike AND time. The diagonal spread — different strikes AND different expiries, like the \"poor man's covered call\" — is this same idea with a directional lean."},
+]},
+
+{id:'7-3', ch:7, title:'Butterflies & the Pin', par:60, steps:[
+  {t:'say', pose:'think', text:"Sometimes your forecast isn't a direction or a range — it's a <b>bullseye</b>: \"DIS will be sitting almost exactly at $80 in two weeks.\" The instrument for that is the <span class='hl'>butterfly</span>: buy one option below, sell two at your target, buy one above.<br><br>It costs pennies, and pays biggest if the stock <b>pins</b> your center strike at expiry."},
+  {t:'toy', toy:'flybuilder'},
+  {t:'quiz', q:[
+    {q:'A butterfly\'s maximum payoff happens when…', a:['The stock moves violently','The stock finishes exactly at the middle (short) strike','IV explodes'], c:1, why:'The tent peaks at the short strike. Every dollar away from it shaves the payoff until you\'re left losing only the small debit.'},
+    {q:'Why do pros love flies as \"pin\" trades near expiry?', a:['They\'re free','Tiny cost, huge reward-to-risk — a surgical bet on WHERE, not just which direction','They can\'t lose'], c:1, why:'Risking $60 for a shot at $440 is a 7:1 payout. Low odds, precisely defined risk, spectacular when the pin hits.'},
+    {q:'Your fly costs $60 with $5-wide wings. Max profit?', a:['$60','$440 — (width $500 − cost $60)','Unlimited'], c:1, why:'Width minus debit, times 100. As always: both ends of the trade known before entry.'},
+  ]},
+  {t:'say', pose:'happy', text:"DIS has gravitated to $80 for six straight weeks — big open interest at the $80 strike tends to act like a magnet into expiration. Set the tent on the magnet."},
+  {t:'trade', cfg:{
+    ticker:'DIS', S0:80, iv:0.25, dte:10, path:[0.4,-0.3,0.5,-0.4,0.3,-0.2,0.2,-0.3,0.1,-0.2],
+    brief:"Rangebound, pinned, expiring. A bullseye forecast deserves a bullseye instrument.",
+    choices:[
+      {label:'Buy the 75/80/85 butterfly', sub:'Cheap tent, peak payoff at $80.', legs:[{type:'call',side:1,strike:75,qty:1},{type:'call',side:-2,strike:80,qty:1},{type:'call',side:1,strike:85,qty:1}]},
+      {label:'Buy the $80 straddle', sub:'Bet the pin BREAKS.', legs:[{type:'call',side:1,strike:80,qty:1},{type:'put',side:1,strike:80,qty:1}]},
+      {label:'Stay in cash', sub:'Pass.', legs:[]},
+    ],
+  }},
+  {t:'say', pose:'cool', text:ctx=>"DIS expired at $"+ctx.last.S.toFixed(2)+" — practically on the bullseye. The fly's tent paid out near its peak while the straddle owner paid double premium to watch paint dry.<br><br><b class='"+(ctx.last.pl>=0?'good':'bad')+"'>"+fmtPL(ctx.last.pl)+"</b>. Note what you just did: you monetized a forecast about <i>stillness at a specific price</i>. Most people don't even know that's a tradeable opinion."},
+]},
+
+{id:'7-4', ch:7, title:'Rolling & Trade Repair', par:-120, steps:[
+  {t:'say', pose:'think', text:"Every premium seller eventually watches a trade get <span class='hl'>tested</span> — the stock slices through the short strike. What separates professionals is what happens NEXT.<br><br>The repair tool is the <span class='hl'>roll</span>: close the wounded position and reopen it further out in time (and usually further away in price), collecting an extra credit for the trouble. Done right, it buys the thesis more room. Done wrong, it's denial on an installment plan."},
+  {t:'toy', toy:'rollsim'},
+  {t:'quiz', q:[
+    {q:'The iron rule of rolling:', a:['Roll everything, always','Only roll for a CREDIT, and only if you still believe the original thesis','Roll for a debit if scared'], c:1, why:'A credit means you\'re being PAID to extend. Rolling for a debit adds money to a losing trade — that\'s averaging down wearing a suit.'},
+    {q:'The stock broke your strike because the company\'s outlook genuinely worsened. You should…', a:['Roll it forever','Close, take the loss, redeploy — repair is for intact theses, not broken ones','Sell more spreads'], c:1, why:'Rolling extends a THESIS. If the thesis died, extending just schedules a bigger funeral.'},
+    {q:'Rolling "out and down" on a tested put spread means…', a:['Later expiration + lower strikes','Earlier expiration + higher strikes','More contracts'], c:0, why:'More time for recovery, more distance from danger — funded by the fresh credit.'},
+  ]},
+  {t:'say', pose:'shock', text:"Live repair drill, two acts. Act one: sell a routine put spread on SBUX… into a week that turns ugly. (Yes, this one's scripted to hurt. Repair drills need a wound.)"},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:100, iv:0.25, dte:8, path:[-0.5,-0.7,-0.6,-0.8,-0.5,-0.6,-0.4,-0.5],
+    brief:"Routine income trade: sell the $98/$94 put spread. What could go wrong?",
+    choices:[{label:'Sell the $98/$94 put spread', sub:'Standard fare. Collect and wait.', legs:[{type:'put',side:-1,strike:98,qty:1},{type:'put',side:1,strike:94,qty:1}]}],
+    allowSell:false,
+    liveNote:'Scripted stress test — ride it in and deal with the aftermath like a professional.',
+  }},
+  {t:'say', pose:'think', text:ctx=>"Tested and beaten: <b class='bad'>"+fmtPL(ctx.last.pl)+"</b>, with SBUX at $"+ctx.last.S.toFixed(2)+".<br><br>Act two. Your homework says nothing broke — the selloff was sector noise, not a SBUX problem. The thesis is intact. So: eat the loss and walk, or roll out-and-down for a fresh credit?"},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:95.5, iv:0.25, dte:10, path:[0.2,0.1,0.3,0.2,0.1,0.2,0.3,0.1,0.2,0.1],
+    brief:"The roll decision. Thesis intact, wound fresh. Choose.",
+    choices:[
+      {label:'Roll: sell next cycle\'s $94/$90 put spread', sub:'New credit, lower strikes, more time.', legs:[{type:'put',side:-1,strike:94,qty:1},{type:'put',side:1,strike:90,qty:1}]},
+      {label:'Walk away — stay in cash', sub:'Take the −$177 and redeploy elsewhere.', legs:[]},
+    ],
+  }},
+  {t:'say', pose:'cool', text:ctx=>"SBUX stabilized, the rolled spread expired clean, and the fresh credit clawed back a real chunk of the wound: cycle total <b class='"+(ctx.plTotal>=0?'good':'bad')+"'>"+fmtPL(ctx.plTotal)+"</b>.<br><br>That's repair done right: <b>credit collected, thesis re-verified, strikes further from danger</b>. And remember the other half of the drill — if your homework had said the thesis was broken, walking away was the professional answer, not the cowardly one."},
+]},
+
+{id:'7-5', ch:7, boss:true, title:'Expiration Day Mechanics', par:40, steps:[
+  {t:'say', pose:'think', text:"Chapter boss — the unglamorous plumbing that separates people who trade options from people who <i>understand</i> them. Expiration day has real machinery:<br><br>· Options ITM by even <b>$0.01</b> at the close are auto-exercised.<br>· Short ITM options become shares in your account Monday morning (assignment).<br>· A stock hovering AT your strike into the close = <span class='hl'>pin risk</span>: you genuinely don't know if you'll be assigned until it's too late to react."},
+  {t:'quiz', name:'BOSS QUIZ', q:[
+    {q:'Your short $100 put expires with the stock at $99.99. Over the weekend you…', a:['Keep the premium, done','Almost certainly own 100 shares Monday — it was ITM by a penny','Nothing happens'], c:1, why:'Auto-exercise triggers at $0.01 ITM. You now carry weekend gap risk on shares you maybe didn\'t want. This is why pros close expiring shorts.'},
+    {q:'"Pin risk" is…', a:['A brokerage fee','The stock sitting AT your short strike into the close — assignment becomes a coin flip you can\'t control','A kind of spread'], c:1, why:'At $100.00 on the nose, you can\'t know if the owner exercises. Professionals pay the few cents to close and delete the uncertainty.'},
+    {q:'The cleanest professional habit around expiration:', a:['Hold everything to the bell for maximum theta','Close or roll short options BEFORE expiry week — the leftover pennies aren\'t worth the machinery','Turn off your screen'], c:1, why:'The 21-DTE rule\'s final act: by expiry week you\'re fighting gamma, pin risk, and assignment plumbing to collect crumbs.'},
+    {q:'Early assignment on American-style short calls is most likely…', a:['Randomly','Right before a dividend, when the call is deep ITM','Never'], c:1, why:'A deep-ITM call holder exercises early to capture the dividend. If you\'re short that call AND short the shares suddenly — surprise.'},
+    {q:'An option 5¢ OUT of the money at the close…', a:['Auto-exercises anyway','Expires worthless — the buyer loses, the seller keeps all premium','Rolls automatically'], c:1, why:'OTM at the bell = gone. The cliff between −5¢ and +1¢ is the sharpest edge in the business — another reason not to be there.'},
+  ]},
+  {t:'say', pose:'happy', text:"Feel the pin once, safely. Sell an at-the-money put and ride it all the way to the bell while SBUX dances ON your strike. (In the real world, you'd have closed this Thursday. Today we're tourists.)"},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:100, iv:0.20, dte:6, path:[0.3,-0.4,0.2,-0.3,0.4,-0.25],
+    brief:"Sell the $100 put and hold to expiry. Watch the last days — the stock will hug your strike the whole way in.",
+    choices:[{label:'Sell the $100 put (ride to the bell)', sub:'ATM premium is fat. So is the suspense.', legs:[{type:'put',side:-1,strike:100,qty:1}]}],
+    allowSell:true,
+    liveNote:'Professional move: close by ~day 4 for most of the profit. Tourist move: white-knuckle it to the close.',
+  }},
+  {t:'say', pose:'cool', text:ctx=>"SBUX closed at $"+ctx.last.S.toFixed(2)+" — ON the strike, the purest pin. "+(ctx.last.how==='sold'?"You closed early and skipped the coin flip — exactly the professional instinct.":"In the sim you "+(ctx.last.pl>=0?'kept the premium':'took the hit')+" — in the REAL world you'd have spent the weekend not knowing whether 100 shares were landing in your account Monday.")+"<br><br><b class='"+(ctx.last.pl>=0?'good':'bad')+"'>"+fmtPL(ctx.last.pl)+"</b>. <b>Chapter 7 cleared</b> — you now speak fluent expiration."},
+]},
+
+// ================= CHAPTER 8 — LEGEND =================
+{id:'8-1', ch:8, title:'Hedge Ratios & Concentration', par:-1000, steps:[
+  {t:'say', pose:'think', text:"The Legend chapter is about running MONEY, not trades. Start with the question every real portfolio faces: <b>how much insurance?</b><br><br>Hedging is a dial, not a switch: each put covers 100 shares. And for mixed portfolios, pros first translate everything into market-equivalent exposure using <span class='hl'>beta</span> — a stock twice as jumpy as the market counts double — then hedge the TOTAL with index puts."},
+  {t:'toy', toy:'betahedge'},
+  {t:'quiz', q:[
+    {q:'You hold 300 shares across stocks with an average beta of 1.0. Full crash protection needs roughly…', a:['1 put','3 puts (each covers 100 shares)','30 puts'], c:1, why:'Match the notional: 3 contracts × 100 = 300 shares covered. Half protection = round down to what you can stomach paying for.'},
+    {q:'A stock with beta 2.0 moves how, roughly, when the market drops 5%?', a:['−5%','−10% — twice the market\'s move','+5%'], c:1, why:'Beta scales exposure. 100 shares of a 2.0-beta stock need TWO puts\' worth of market protection, not one.'},
+    {q:'The honest way to think about a hedge that expired worthless:', a:['Wasted money — skip it next quarter','The house didn\'t burn down; the premium was the price of sleeping at night with a concentrated book','A trading error'], c:1, why:'Chapter 6\'s barbell lesson at portfolio scale: judge insurance across years, not quarters.'},
+  ]},
+  {t:'say', pose:'shock', text:"Your book: <b>200 SBUX shares</b> — concentrated, correlated, and a credit-market storm is forming again. Choose your coverage. The premium is real money; so is the storm."},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:100, iv:0.30, dte:10, path:[-3,-4,-2], ivPath:[0.50,0.65,0.65], cash:25000, flags:{1:'▼'},
+    brief:"200 shares. Storm forming. Insurance on the shelf: $95 puts at about $1 each. Dial it in.",
+    choices:[
+      {label:'Full hedge: buy 2× the $95 puts', sub:'Every share covered.', legs:[{type:'stock',side:1,qty:200},{type:'put',side:1,strike:95,qty:2}]},
+      {label:'Half hedge: buy 1× the $95 put', sub:'Half the premium, half the umbrella.', legs:[{type:'stock',side:1,qty:200},{type:'put',side:1,strike:95,qty:1}]},
+      {label:'No hedge', sub:'Storms miss sometimes.', legs:[{type:'stock',side:1,qty:200}]},
+    ],
+  }},
+  {t:'say', pose:'cool', text:ctx=>"The storm landed — SBUX down ~9% with IV doubling. Check the leaderboard: coverage scaled EXACTLY with contracts. Full hedge shrugged, half hedge limped, naked bled.<br><br><b class='"+(ctx.last.pl>=0?'good':'bad')+"'>"+fmtPL(ctx.last.pl)+"</b>. The legend-level insight: hedge sizing is portfolio management. You chose your loss BEFORE the crash chose it for you."},
+]},
+
+{id:'8-2', ch:8, title:'The Gamma Scalping Lab', par:50, steps:[
+  {t:'say', pose:'think', text:"Time to see the machine room. Market makers earn their living <span class='hl'>gamma scalping</span>: own options (long gamma), hedge delta-neutral, then re-hedge after every move — mechanically selling into rallies and buying into dips.<br><br>Each round trip harvests a slice of realized volatility. If the stock moves MORE than the IV you paid, the harvest beats the theta rent. Run the machine yourself:"},
+  {t:'toy', toy:'scalplab'},
+  {t:'quiz', q:[
+    {q:'Gamma scalping profits when…', a:['The stock trends up','REALIZED volatility exceeds the IMPLIED volatility you paid for the options','Commissions are low'], c:1, why:'The re-hedging harvests actual movement; the option premium was priced on expected movement. The spread between them is the P/L.'},
+    {q:'Why does the scalper SELL shares after a rally?', a:['Panic','The straddle\'s delta went positive — selling shares restores neutrality AND banks the swing','Taxes'], c:1, why:'Re-hedging IS the harvest: every return to neutral converts a swing into locked-in hedge profit. Buy-low-sell-high, automated by the Greeks.'},
+    {q:'A retail trader without scalping infrastructure should take from this lesson…', a:['Nothing','Why straddles that "chop and end flat" lose for YOU but win for market makers — and why persistent moves, not chop, are what retail long-vol needs','Open a market-making firm'], c:1, why:'Know which game you\'re playing: without re-hedging, you need the move to STICK, not just happen.'},
+  ]},
+  {t:'say', pose:'happy', text:"Your version of the win, retail edition: PLTR coiling before a product decision, IV asleep at 45%. If the move comes and <b>sticks</b>, long volatility pays without any scalping machinery."},
+  {t:'trade', cfg:{
+    ticker:'PLTR', S0:50, iv:0.45, dte:12, path:[1,1.2,6.5], flags:{2:'▲'}, showGreeks:true,
+    brief:"Cheap vol + a real catalyst + (this time) a move that trends instead of chopping. The retail long-vol setup.",
+    choices:[
+      {label:'Buy the $50 straddle', sub:'Long volatility, direction agnostic.', legs:[{type:'call',side:1,strike:50,qty:1},{type:'put',side:1,strike:50,qty:1}]},
+      {label:'Sell the $50 straddle', sub:'Short the coil.', legs:[{type:'call',side:-1,strike:50,qty:1},{type:'put',side:-1,strike:50,qty:1}]},
+      {label:'Stay in cash', sub:'Pass.', legs:[]},
+    ],
+  }},
+  {t:'say', pose:'cool', text:ctx=>"The decision hit and PLTR ran 9% — and KEPT it. Your straddle's call side did the heavy lifting: <b class='"+(ctx.last.pl>=0?'good':'bad')+"'>"+fmtPL(ctx.last.pl)+"</b>.<br><br>Now you understand long volatility from both seats: the market maker harvests the chop; you harvest the trend. Same instrument, two different businesses."},
+]},
+
+{id:'8-3', ch:8, title:'Regimes & the Playbook', par:30, steps:[
+  {t:'say', pose:'think', text:"Here's the difference between knowing strategies and BEING a trader: legends don't ask \"what's my favorite trade?\" They ask <span class='hl'>\"what regime am I in?\"</span> — and let the regime pick the strategy.<br><br>Two axes cover most of it: is volatility rich or cheap (IV rank)? Is the market trending or range-bound? Four quadrants, four playbooks."},
+  {t:'toy', toy:'regimes'},
+  {t:'quiz', q:[
+    {q:'IV rank 85, no catalysts, stock stuck in a range. The playbook says…', a:['Buy straddles','Sell premium — condors and credit spreads — and manage mechanically','Wait'], c:1, why:'Rich premium + no fuel for a breakout = the seller\'s quadrant. This is condor weather, and you already know the exit rules.'},
+    {q:'IV rank 10, powerful uptrend intact. The playbook says…', a:['Iron condors','Directional debit spreads or calls — movement is on sale and the trend supplies the movement','Short everything'], c:1, why:'Cheap vol makes buying rational; the trend gives your long delta a tailwind. The rare quadrant where paying theta is smart.'},
+    {q:'The dead zone — low IV, no trend, no catalysts. The legendary move is…', a:['Force a trade anyway','Mostly wait. Patience is a position; forced trades in dead markets just pay spreads and theta for nothing','Triple size'], c:1, why:'"Don\'t just do something — sit there." The discipline to NOT trade is a documented edge in itself.'},
+  ]},
+  {t:'say', pose:'happy', text:"Read the tape, pick from the playbook: SBUX — IV rank <b>12</b>, and a clean uptrend that institutional flows keep feeding. Which quadrant is this, and what does it prescribe?"},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:100, iv:0.16, dte:12, path:[0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8], showGreeks:true,
+    brief:"Cheap vol + live trend. Prescribe from the playbook, not from habit.",
+    choices:[
+      {label:'Buy the $100/$105 call debit spread', sub:'Directional, defined risk, cheap-vol entry.', legs:[{type:'call',side:1,strike:100,qty:1},{type:'call',side:-1,strike:105,qty:1}]},
+      {label:'Sell the 96/92 + 104/108 iron condor', sub:'Your favorite trade… in the wrong quadrant.', legs:[{type:'put',side:-1,strike:96,qty:1},{type:'put',side:1,strike:92,qty:1},{type:'call',side:-1,strike:104,qty:1},{type:'call',side:1,strike:108,qty:1}]},
+      {label:'Stay in cash', sub:'Wait for clarity.', legs:[]},
+    ],
+  }},
+  {t:'say', pose:'cool', text:ctx=>"The trend did what trends do — ground higher for eight straight sessions. The debit spread rode it to near max value; the condor got steamrolled through its call side, because <i>a good strategy in the wrong regime is a bad strategy</i>.<br><br><b class='"+(ctx.last.pl>=0?'good':'bad')+"'>"+fmtPL(ctx.last.pl)+"</b>. The playbook, not the preference. That's the whole lesson."},
+]},
+
+{id:'8-4', ch:8, boss:true, title:'The Legend Gauntlet', par:200, steps:[
+  {t:'say', pose:'cool', text:"<b>THE LEGEND GAUNTLET.</b> Eight markets. Everything from all eight chapters: expected moves, term structure, pins, rolls, sizing, skew, regimes, tails.<br><br>No coaching, no hints in the briefs beyond what a real tape would tell you. Total P/L across all eight decides whether you leave this floor a Partner… or a Legend."},
+  {t:'quiz', name:'LEGEND WRITTEN', q:[
+    {q:'The ONE bet that ends careers regardless of how often it wins:', a:['Small defined-risk spreads','Naked short tails — unlimited loss exposure to rare events','Covered calls'], c:1, why:'Everything else in eight chapters is refinement. This is the commandment.'},
+    {q:'The straddle costs 6% of the stock price; the average historical event move is 3.5%. You…', a:['Buy the straddle — events are exciting','Sell premium beyond the expected move, wings on','Flip a coin'], c:1, why:'The line is mispriced high versus history. Sell the line, cap the tail.'},
+    {q:'Front-week IV is double the monthly IV before earnings. The structure that harvests exactly that:', a:['Naked weekly call','A calendar — short the spiked front, long the calm back','Buying the weekly straddle'], c:1, why:'Term-structure dislocations are the calendar\'s entire reason to exist.'},
+    {q:'You\'re a Legend now. Someone asks for your single sentence of trading advice:', a:['"Win rate is everything"','"Survive first: size small, define risk, protect tails — the edge only pays those still standing"','"Buy low, sell high"'], c:1, why:'Eight chapters, one sentence. Everything else is technique.'},
+  ]},
+  {t:'trade', cfg:{
+    ticker:'PLTR', S0:50, iv:0.80, dte:7, path:[5,-0.3], ivPath:[0.45,0.45],
+    brief:"<b>Round 1/8.</b> PLTR earnings tonight. Expected move ±11%. Ten-year average move: 6%.",
+    choices:[
+      {label:'Sell the 44/41 + 56/59 iron condor', sub:'', legs:[{type:'put',side:-1,strike:44,qty:1},{type:'put',side:1,strike:41,qty:1},{type:'call',side:-1,strike:56,qty:1},{type:'call',side:1,strike:59,qty:1}]},
+      {label:'Buy the $50 straddle', sub:'', legs:[{type:'call',side:1,strike:50,qty:1},{type:'put',side:1,strike:50,qty:1}]},
+      {label:'Stay in cash', sub:'', legs:[]},
+    ],
+  }},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:100, iv:0.15, dte:7, path:[0.2,-7], ivPath:[0.15,0.40],
+    brief:"<b>Round 2/8.</b> SBUX: surprise CEO-transition rumor swirling, IV rank 4 — the market is asleep on a live grenade.",
+    choices:[
+      {label:'Buy the 97.5 put / 102.5 call strangle', sub:'', legs:[{type:'put',side:1,strike:97.5,qty:1},{type:'call',side:1,strike:102.5,qty:1}]},
+      {label:'Sell that strangle', sub:'', legs:[{type:'put',side:-1,strike:97.5,qty:1},{type:'call',side:-1,strike:102.5,qty:1}]},
+      {label:'Stay in cash', sub:'', legs:[]},
+    ],
+  }},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:100, iv:0.22, dte:7, path:[0.1,-0.1,0.1,0.0],
+    brief:"<b>Round 3/8.</b> Dead calm on SBUX; front-week premium rich vs the monthlies.",
+    choices:[
+      {label:'Calendar: sell 7d $100 call, buy 30d $100 call', sub:'', legs:[{type:'call',side:-1,strike:100,qty:1,dte:7},{type:'call',side:1,strike:100,qty:1,dte:30}]},
+      {label:'Buy the 7d $100 call outright', sub:'', legs:[{type:'call',side:1,strike:100,qty:1,dte:7}]},
+      {label:'Stay in cash', sub:'', legs:[]},
+    ],
+  }},
+  {t:'trade', cfg:{
+    ticker:'DIS', S0:78.8, iv:0.30, dte:10, path:[-0.5,-0.5,-0.4,-0.5,-0.4,-0.5,-0.4,-0.5],
+    brief:"<b>Round 4/8.</b> Your DIS put spread just got tested (−$150 booked). Homework says the thesis is intact but momentum is still soft.",
+    choices:[
+      {label:'Roll out-and-down: sell next cycle\'s $74/$70 spread', sub:'', legs:[{type:'put',side:-1,strike:74,qty:1},{type:'put',side:1,strike:70,qty:1}]},
+      {label:'Re-sell the same $77/$73 strikes, doubled', sub:'', legs:[{type:'put',side:-1,strike:77,qty:2},{type:'put',side:1,strike:73,qty:2}]},
+      {label:'Close everything, stand down', sub:'', legs:[]},
+    ],
+  }},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:100, iv:0.25, dte:8, path:[-2.5,-2,-1.5], cash:2000,
+    brief:"<b>Round 5/8.</b> $2,000 account. A setup you love. The exam question is a number.",
+    choices:[
+      {label:'Sell 1× the $96/$92 put spread', sub:'', legs:[{type:'put',side:-1,strike:96,qty:1},{type:'put',side:1,strike:92,qty:1}]},
+      {label:'Sell 6× the $96/$92 put spread', sub:'', legs:[{type:'put',side:-1,strike:96,qty:6},{type:'put',side:1,strike:92,qty:6}]},
+    ],
+  }},
+  {t:'trade', cfg:{
+    ticker:'DIS', S0:80, iv:0.30, dte:10, path:[0.1,0.2,-0.1,0.2,0.1,-0.2,0.2,0.1],
+    brief:"<b>Round 6/8.</b> DIS drifting politely; downside puts fat with crash premium; calendar clean.",
+    choices:[
+      {label:'Sell the $75/$71 put spread', sub:'', legs:[{type:'put',side:-1,strike:75,qty:1},{type:'put',side:1,strike:71,qty:1}]},
+      {label:'Buy the $75/$71 put spread', sub:'', legs:[{type:'put',side:1,strike:75,qty:1},{type:'put',side:-1,strike:71,qty:1}]},
+      {label:'Stay in cash', sub:'', legs:[]},
+    ],
+  }},
+  {t:'trade', cfg:{
+    ticker:'DIS', S0:80, iv:0.25, dte:10, path:[0.3,-0.2,0.3,-0.3,0.2,-0.2,0.1,-0.2,0.1,-0.1],
+    brief:"<b>Round 7/8.</b> DIS glued to $80 into expiration — the pin is forming. You have a bullseye opinion.",
+    choices:[
+      {label:'Buy the 75/80/85 butterfly', sub:'', legs:[{type:'call',side:1,strike:75,qty:1},{type:'call',side:-2,strike:80,qty:1},{type:'call',side:1,strike:85,qty:1}]},
+      {label:'Buy the $80 straddle', sub:'', legs:[{type:'call',side:1,strike:80,qty:1},{type:'put',side:1,strike:80,qty:1}]},
+      {label:'Stay in cash', sub:'', legs:[]},
+    ],
+  }},
+  {t:'trade', cfg:{
+    ticker:'SBUX', S0:100, iv:0.30, dte:8, path:[-3,-4], ivPath:[0.50,0.65], cash:11000,
+    brief:"<b>Round 8/8.</b> You hold 100 SBUX. The sirens again — you know this movie, and you know how legends end it.",
+    choices:[
+      {label:'Hold shares + buy 2× the $95 puts', sub:'', legs:[{type:'stock',side:1,qty:100},{type:'put',side:1,strike:95,qty:2}]},
+      {label:'Hold shares, unhedged', sub:'', legs:[{type:'stock',side:1,qty:100}]},
+      {label:'Hold shares + sell the $106 call', sub:'', legs:[{type:'stock',side:1,qty:100},{type:'call',side:-1,strike:106,qty:1}]},
+    ],
+  }},
+  {t:'say', pose:'cool', text:ctx=>{
+    const rows = ctx.results.map((r,i)=>'R'+(i+1)+': <b class="'+(r.pl>=0?'good':'bad')+'">'+fmtPL(r.pl)+'</b>').join('  ·  ');
+    const legend = ctx.plTotal>=200;
+    return "<b>GAUNTLET COMPLETE.</b><br><br>"+rows+"<br>Desk total: <b class='"+(ctx.plTotal>=0?'good':'bad')+"'>"+fmtPL(ctx.plTotal)+"</b><br><br>"+
+    (legend? "Eight regimes, eight correct reads. " : "Some rounds got you — replay them; legends are built on reps. ")+
+    "You now carry the complete arsenal:<br><br>"+
+    "· The instruments — calls to condors, calendars to flies<br>"+
+    "· The Greeks and the volatility surface — IV rank, skew, term structure, expected moves<br>"+
+    "· The process — EV, sizing, mechanical management, repair, expiration hygiene<br>"+
+    "· The philosophy — survive first, respect the tails, let the regime pick the play<br><br>"+
+    "One truth to carry out the door: no simulation mints a legend — only live reps, small size, and honest journaling do that. But you now know everything the screen can teach.<br><br>Class dismissed, Legend. The desk is yours. — Vega";
   }},
 ]},
 ];
@@ -3298,6 +3805,11 @@ const GLOSSARY = [
 {t:'Spread width & wings', s:'The distance between a spread’s strikes — which sets its max loss.',
  d:'In any vertical spread, (width between strikes − credit received) × 100 = maximum loss. The bought further-out options in a condor are its <b>wings</b> — the safety net that turns unlimited risk into defined risk. Wider width = more credit but more risk; the seesaw never sleeps.',
  ex:'Sell the $96/$92 put spread (width $4) for $0.70 credit: max gain $70, max loss (4 − 0.70) × 100 = $330.'},
+{t:'Auto-exercise', s:'ITM by $0.01 at the close → exercised automatically.',
+ d:'On expiration day, any option in the money by even one cent is exercised automatically by the clearing system — no phone call, no choice. For buyers this is a convenience. For SELLERS it means an option a penny in the money becomes 100 shares (or short shares) in your account over the weekend, whether you wanted them or not. The clean habit: close or roll short options before expiry week.'},
+{t:'Pin risk', s:'The stock parked exactly AT your short strike into the close.',
+ d:'If the stock finishes at $99.95 you’re assigned; at $100.05 you’re not — and while it hovers at $100.00 into the final minutes, you genuinely cannot know which. That coin-flip uncertainty about weekend share exposure is pin risk. Professionals don’t flip the coin: they pay the few cents to buy the option back and delete the question.',
+ ex:'Short a $100 put, stock closes $99.98. Monday you own 100 shares — and whatever the futures did over the weekend is now your problem.'},
 {t:'Cost basis', s:'What you effectively paid per share, after all premiums.',
  d:'Premiums you collect reduce what your shares truly cost you; premiums you pay increase it. Wheel traders live and die by cost basis — every put and call sold clicks it lower, until even a mediocre stock exit turns profitable.',
  ex:'Assigned at $76 after collecting $0.55 on the put, then $0.45 on a covered call: cost basis $75.00. Shares called away at $78 → real profit $3.00/share.'},
@@ -3344,6 +3856,11 @@ const GLOSSARY = [
  viz:['skew']},
 {t:'VIX', s:'The market’s "fear gauge" — IV of the S&P 500, as one number.',
  d:'The VIX condenses S&P 500 option prices into one 30-day implied volatility number. Historically it lives in the mid-teens, jumps into the 30s during scares, and has spiked above 80 in true crises (2008, 2020). Traders use it as weather report: VIX low = premium cheap everywhere; VIX exploding = insurance suddenly very expensive.'},
+{t:'Expected move', s:'The size of move the market has priced in — read it straight off the straddle.',
+ d:'Before any event, the option chain publishes its own forecast: <b>expected move ≈ at-the-money straddle price ÷ stock price</b>. It’s the landing zone buyers and sellers have collectively agreed to price. Professional event trading is never “will it move?” — it’s “will the REAL move beat the priced one?” Sell premium outside the expected move (with wings), or buy premium only when you believe reality will exceed it.',
+ ex:'PLTR at $50, earnings tonight, the $50 straddle costs $3.50. Expected move = 3.50 ÷ 50 ≈ ±7%. A +4% gap means premium sellers beyond ±7% won — even though the stock moved.'},
+{t:'Term structure', s:'How IV differs across expiration dates.',
+ d:'Line up the same strike across many expiries and the IVs form a curve. Normally it slopes gently upward (more time = more uncertainty). Before a scheduled event it <b>kinks</b>: the expiry containing the event spikes while later months stay calm — drama is date-stamped. Calendar spreads trade this curve directly: sell the expensive, fast-decaying front month; own the cheap, slow back month.'},
 {t:'Black-Scholes', s:'The Nobel-winning formula behind every option price (including this game’s).',
  d:'In 1973, Black, Scholes and Merton showed an option’s fair price follows from five ingredients: stock price, strike, time left, interest rate, and volatility. Four are known facts — so trading options is really trading the fifth. The formula’s limits (it assumes calm, bell-curved markets) are exactly where tail-risk thinking begins.'},
 ]],
@@ -3404,6 +3921,9 @@ const GLOSSARY = [
  d:'One combined adjustment: buy back your short option, sell another with more DTE (and often a different strike), usually for an additional credit. Rolling buys time for a trade under pressure or extends a winner — it’s how the "exit by 21 DTE" rule is implemented without abandoning a position. Rule of thumb: only roll for a credit; rolling for a debit is usually denial with extra steps.'},
 {t:'Defined risk', s:'Worst case known and capped before you enter. The professional default.',
  d:'A position whose maximum loss is a printed number: long options, verticals, condors, butterflies. Defined risk turns disasters into line items and makes honest position sizing possible ("this trade can lose at most $330, which is 2% of my account"). Its opposite — undefined risk — is how one bad night deletes a year of wins.'},
+{t:'Poor man\'s covered call', s:'A covered call built from a LEAPS call instead of shares.',
+ d:'A diagonal spread doing a covered call’s job: buy a deep-in-the-money long-dated call (delta ≈ 0.8, behaves like stock) and sell short-dated calls against it month after month. Same income engine, a fraction of the capital. The trade-offs: the long call itself decays (slowly), and a hard crash hurts more in percentage terms than shares would.',
+ ex:'Instead of $8,000 of DIS shares, buy the 12-month $65 call for ~$1,700 and sell the monthly $85 call for $90 against it. Rent collected on a fifth of the capital.'},
 {t:'Collateral & margin', s:'What you pledge to guarantee your promises.',
  d:'Short options are promises, and brokers demand security: a cash-secured put locks up the full strike × 100; a credit spread locks its max loss; portfolio margin (pro accounts) computes fancier requirements. In this game’s practice desk, collateral equals the defined max loss — the honest amount. If a trade’s collateral makes you wince, the position is too big.'},
 ]],
@@ -3460,6 +3980,13 @@ const GLOSSARY = [
  d:'Taleb’s construction: ~85–90% of capital in things that cannot blow up, ~10–15% in things that can explode UPWARD (far-OTM options, asymmetric bets), and deliberately nothing in the "moderately risky" middle where hidden fragility lives. Applied to option income: sell your premium, but spend a budgeted share of it on far-OTM protection. It drags returns in calm years and owns the crisis years — which is the whole point.'},
 {t:'Black Monday (October 19, 1987)', s:'The −23% day that permanently rewired option prices.',
  d:'The largest one-day US stock crash in history — down 23% in a single session, an event standard models called essentially impossible. Before 1987, IV was roughly flat across strikes; ever since, downside puts have carried a permanent crash premium (see <b>Skew</b>). Every option chain you will ever read still carries the scar of that Monday — the market’s institutional memory that the "impossible" happens.'},
+{t:'Beta & beta-weighting', s:'Translating every position into “market-equivalent” exposure.',
+ d:'Beta measures how hard a stock moves relative to the overall market: beta 1.0 moves with it, 2.0 moves twice as hard, 0.5 half. Beta-weighting converts a mixed portfolio into one number — “this book behaves like N shares of the index” — so a single index hedge can cover many positions at once. It’s how professionals see one portfolio instead of twenty tickers.',
+ ex:'100 shares of a 2.0-beta stock + 100 shares of a 1.0-beta stock ≈ 300 index-equivalent shares → 3 index puts for full coverage.'},
+{t:'Concentration risk', s:'Too many eggs, one basket — the risk diversification can’t fix after the fact.',
+ d:'A portfolio dominated by one position (or one sector, or one THEME) lives and dies on a single story. Options give concentrated holders tools shares don’t: protective puts and collars cap the damage without forcing a sale. The question a professional asks about any single position: “if this gaps down 30% overnight, is the account fine?” If not, it’s too big or under-hedged.'},
+{t:'Market regime', s:'The current combination of volatility and trend — which should pick your strategy.',
+ d:'Legends index their playbook by regime, not preference. Two axes cover most of it: is IV rich or cheap (IV rank), and is the market trending or range-bound? High IV + range = sell condors. Cheap IV + trend or catalyst = buy directional or straddles. Cheap IV + dead tape = mostly wait. The most common expensive mistake in trading: running your favorite strategy in the wrong quadrant.'},
 {t:'Revenge trading & tilt', s:'Trading to un-feel a loss. The classic account-killer.',
  d:'Poker calls it tilt: after a painful loss, the urge to win it back RIGHT NOW — bigger size, looser standards, borrowed conviction. It’s exactly backwards: losses raise emotion and lower judgment, so post-loss trades tend to be the worst-chosen AND the biggest. The professional protocols are boring and effective: fixed sizing rules, a written plan, and full permission to walk away from the desk. The market opens again tomorrow.'},
 ]],

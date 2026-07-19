@@ -8,17 +8,19 @@ Double-click **`index.html`** (or open it in any modern browser). That's it.
 
 ## What's inside
 
-- **Course** — 29 story-driven lessons across 6 chapters, guided by a mentor named Vega, taking you from "what is a call?" to professional-grade decision making:
+- **Course** — 38 story-driven lessons across 8 chapters, guided by a mentor named Vega, taking you from "what is a call?" to professional-grade decision making:
   - **Ch. 1 · The Basics (SBUX):** calls, strikes, premium & break-even, puts, expiry, intrinsic vs extrinsic value, selling options.
   - **Ch. 2 · The Greeks (PLTR):** delta, theta decay, implied volatility (including a scripted earnings IV-crush), reading an option chain.
   - **Ch. 3 · Strategies (DIS):** covered calls, cash-secured puts, debit & credit vertical spreads, and a 5-round Gauntlet.
   - **Ch. 4 · Volatility:** the volatility risk premium (implied vs realized — Natenberg), IV rank as the sell/buy signal, straddles & strangles, and the iron condor.
   - **Ch. 5 · The Edge:** expected value over win rate ("resulting"), position sizing & risk of ruin (Ralph Vince's drawdown math), managing winners at ~50% of max / exiting by ~21 DTE (tastytrade mechanics), liquidity, slippage, and tilt discipline.
   - **Ch. 6 · Mastery:** portfolio Greeks & delta-neutral books, post-1987 put skew and the crash premium, Taleb's barbell & tail-risk convexity, the wheel, and a 6-round final exam.
+  - **Ch. 7 · The Specialist:** the expected move (reading the market's own forecast), calendars & volatility term structure, butterflies & pinning, rolling & trade repair, and expiration-day mechanics (auto-exercise, assignment, pin risk).
+  - **Ch. 8 · Legend:** hedge ratios & beta-weighting for concentrated books, a hands-on gamma-scalping lab (re-hedge a straddle through a violent week), regime-based playbook selection, and the 8-round Legend Gauntlet.
 - Each lesson: interactive exercise (simulators for the vol premium, EV, risk-of-ruin, crash/barbell, skew, plus strategy builders) → quick quiz (XP + streak bonuses) → a simulated trade you advance day-by-day → debrief.
 - **Practice desk** — a persistent $10,000 simulator that unlocks in 4 tiers after chapter bosses (buy-only → Greeks/selling/expiries → spreads + all tickers → one-tap strategy templates: straddle, strangle, iron condor, credit spreads). PLTR has surprise earnings with IV crush. Naked calls are blocked; short puts must be cash-secured; defined-risk trades hold collateral equal to max loss.
-- **Progression** — XP, a rank ladder (Intern → Partner), 1–3 stars per lesson, daily streak.
-- **Glossary** — a searchable, illustrated dictionary of **110 terms** across 5 groups (Markets & Trading Basics, Options Basics, Greeks & Volatility, Strategies, Risk & the Professional Mindset). Each entry is an expandable card: a one-line summary when collapsed, and — expanded — a long plain-English explanation, a worked example with real numbers, and (for ~32 entries) a diagram rendered live by the game's own chart engine: payoff shapes for every strategy, the theta decay curve, the gamma cliff, the volatility smirk, drawdown asymmetry, the Kelly curve, risk-of-ruin equity paths, and more. Opens as a right-hand drawer from the floating book button on any screen; Esc or the backdrop closes it. Search matches terms, summaries, definitions, and examples.
+- **Progression** — XP, a rank ladder (Intern → Market Legend), 1–3 stars per lesson, daily streak.
+- **Glossary** — a searchable, illustrated dictionary of **118 terms** across 5 groups (Markets & Trading Basics, Options Basics, Greeks & Volatility, Strategies, Risk & the Professional Mindset). Each entry is an expandable card: a one-line summary when collapsed, and — expanded — a long plain-English explanation, a worked example with real numbers, and (for ~32 entries) a diagram rendered live by the game's own chart engine: payoff shapes for every strategy, the theta decay curve, the gamma cliff, the volatility smirk, drawdown asymmetry, the Kelly curve, risk-of-ruin equity paths, and more. Opens as a right-hand drawer from the floating book button on any screen; Esc or the backdrop closes it. Search matches terms, summaries, definitions, and examples.
 
 ## Philosophies baked into the curriculum
 
