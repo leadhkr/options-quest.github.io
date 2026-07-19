@@ -408,6 +408,7 @@ function freshSave(){
   return {
     schemaVersion:1, xp:0, dailyStreak:0, lastPlayedDate:null,
     levels:{}, // id -> {stars, bestPL, completed}
+    nav:{ name:'title', params:null, stepIdx:0 }, // last location, restored on refresh
     sandbox:{ cash:10000, day:0, positions:[], tickers:null, tier:0, blowups:0, sbXPday:null, sbXPcount:0, feed:[] },
     settings:{},
   };
@@ -444,8 +445,12 @@ function tierName(t){ return ['—','Tier 1: SBUX basics','Tier 2: Greeks + PLTR
 // screen registry (screens register themselves in later sections)
 const SCREENS = {};
 let CUR = {name:null, params:null};
+let RESTORE_STEP = null; // set once at boot to restore a lesson mid-progress
 function go(name, params){
   CUR = {name, params};
+  // remember where we are so a page refresh lands here again
+  S.nav = {name, params: params||null, stepIdx: 0};
+  save();
   const app = document.getElementById('app');
   app.innerHTML = '';
   const scr = h('div',{cls:'screen'});
@@ -790,7 +795,9 @@ function levelById(id){ return LEVELS.find(l=>l.id===id); }
 
 SCREENS.lesson = function(scr, params){
   const lvl = levelById(params.id);
-  const ctx = { lvl, stepIdx:0, quizFirst:0, quizTotal:0, combo:0, plTotal:0, results:[] };
+  const startStep = (RESTORE_STEP!=null && RESTORE_STEP < lvl.steps.length) ? RESTORE_STEP : 0;
+  RESTORE_STEP = null; // consume once
+  const ctx = { lvl, stepIdx:startStep, quizFirst:0, quizTotal:0, combo:0, plTotal:0, results:[] };
   const barWrap = h('div',{cls:'hud'},
     h('button',{cls:'back',onclick:()=>go('map')},'‹'),
     h('div',{},h('div',{cls:'tag'},'Level '+lvl.id.replace('-','.')),h('div',{style:{fontWeight:900,fontSize:'15px'}},lvl.title)),
@@ -801,6 +808,8 @@ SCREENS.lesson = function(scr, params){
   scr.append(barWrap, prog, body);
   function renderStep(){
     const step = lvl.steps[ctx.stepIdx];
+    // keep saved location in sync so a refresh resumes on this step
+    if(S.nav && S.nav.name==='lesson'){ S.nav.stepIdx = ctx.stepIdx; save(); }
     scr.classList.toggle('wide', !!step && step.t==='trade');
     prog.firstChild.style.width = Math.round(ctx.stepIdx/lvl.steps.length*100)+'%';
     body.innerHTML='';
@@ -1097,6 +1106,7 @@ function finishLevel(scr, ctx){
     tierMsg = 'Sandbox upgraded — '+tierName(S.sandbox.tier)+'!';
   }
   if(xpGain) S.xp += xpGain;
+  S.nav = {name:'map', params:null, stepIdx:0}; // completion screen → refresh lands on the map
   save();
   confettiBurst(true);
   const body = scr.querySelector('.prog').nextSibling || scr;
@@ -3038,8 +3048,23 @@ window.addEventListener('DOMContentLoaded', ()=>{
   // engine self-check (dev): BS(100,100,1,.2,r=.05) call ≈ 10.45
   const chk = bsPrice('call',100,100,1,0.2,0.05);
   if(Math.abs(chk-10.4506)>0.01) console.warn('BS self-check off:', chk);
-  go('title');
+  restoreLocation();
 });
+
+// Land the user back where they left off after a page refresh.
+function restoreLocation(){
+  const nav = S.nav;
+  if(!nav || !SCREENS[nav.name] || nav.name==='settings'){ go('title'); return; }
+  if(nav.name==='lesson'){
+    const lvl = levelById(nav.params && nav.params.id);
+    if(!lvl){ go('map'); return; }
+    RESTORE_STEP = nav.stepIdx||0;
+    go('lesson', nav.params);
+    return;
+  }
+  if(nav.name==='sandbox' && !(S.sandbox && S.sandbox.tier>0)){ go('map'); return; }
+  go(nav.name, nav.params);
+}
 </script>
 </body>
 </html>
